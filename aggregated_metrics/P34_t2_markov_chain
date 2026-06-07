@@ -1,0 +1,32 @@
+digraph {
+	Patch [label="Patch
+5.22% fixations
+5.03% duration" height=0.2512888633855381 width=0.2512888633855381]
+	Popup [label="Popup
+3.48% fixations
+3.09% duration" height=0.15466854551721113 width=0.15466854551721113]
+	"Project Explorer" [label="Project Explorer
+1.50% fixations
+1.27% duration" height=0.06359843993330459 width=0.06359843993330459]
+	"Source Code" [label="Source Code
+38.94% fixations
+39.83% duration" height=1.99168361825799 width=1.99168361825799]
+	"Test and Run Output" [label="Test and Run Output
+11.06% fixations
+12.39% duration" height=0.6196134366355017 width=0.6196134366355017]
+	Tests [label="Tests
+25.60% fixations
+24.42% duration" height=1.2207881801047078 width=1.2207881801047078]
+	Patch -> "Source Code" [label=0.88]
+	Popup -> "Project Explorer" [label=0.23]
+	Popup -> "Source Code" [label=0.77]
+	"Project Explorer" -> Popup [label=0.27]
+	"Project Explorer" -> "Source Code" [label=0.27]
+	"Project Explorer" -> "Test and Run Output" [label=0.33]
+	"Source Code" -> Popup [label=0.21]
+	"Source Code" -> "Test and Run Output" [label=0.26]
+	"Source Code" -> Tests [label=0.24]
+	"Test and Run Output" -> "Source Code" [label=0.59]
+	"Test and Run Output" -> Tests [label=0.24]
+	Tests -> "Source Code" [label=0.69]
+}

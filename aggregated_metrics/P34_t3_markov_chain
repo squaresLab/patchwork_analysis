@@ -1,0 +1,25 @@
+digraph {
+	Popup [label="Popup
+1.23% fixations
+1.04% duration" height=0.052204937055853336 width=0.052204937055853336]
+	"Project Explorer" [label="Project Explorer
+1.48% fixations
+1.56% duration" height=0.0779704602238311 width=0.0779704602238311]
+	"Source Code" [label="Source Code
+55.49% fixations
+55.74% duration" height=2.7871987380019374 width=2.7871987380019374]
+	"Test and Run Output" [label="Test and Run Output
+25.31% fixations
+26.67% duration" height=1.3335859337616394 width=1.3335859337616394]
+	Tests [label="Tests
+9.30% fixations
+8.88% duration" height=0.4437598770093649 width=0.4437598770093649]
+	Popup -> "Source Code" [label=0.30]
+	Popup -> "Test and Run Output" [label=0.52]
+	"Project Explorer" -> "Source Code" [label=0.42]
+	"Project Explorer" -> "Test and Run Output" [label=0.42]
+	"Source Code" -> "Test and Run Output" [label=0.73]
+	"Test and Run Output" -> "Source Code" [label=0.62]
+	Tests -> "Source Code" [label=0.34]
+	Tests -> "Test and Run Output" [label=0.62]
+}

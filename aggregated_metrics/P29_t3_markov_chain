@@ -1,0 +1,90 @@
+digraph {
+	OOB [label="OOB
+5.56% fixations
+5.19% duration" height=0.2593296567655454 width=0.2593296567655454]
+	OOB -> OOB [label=0.39]
+	OOB -> Run [label=0.02]
+	OOB -> browser [label=0.02]
+	OOB -> Test [label=0.17]
+	OOB -> "Analyze Dataflow to" [label=0.18]
+	OOB -> Editor1 [label=0.17]
+	OOB -> "-" [label=0.04]
+	OOB -> Editor2 [label=0.01]
+	Run [label="Run
+4.30% fixations
+4.46% duration" height=0.22283925581868771 width=0.22283925581868771]
+	Run -> OOB [label=0.01]
+	Run -> Run [label=0.82]
+	Run -> Project [label=0.01]
+	Run -> Test [label=0.15]
+	Project [label="Project
+0.16% fixations
+0.12% duration" height=0.005992369149354491 width=0.005992369149354491]
+	Project -> OOB [label=0.07]
+	Project -> Project [label=0.27]
+	Project -> "Analyze Dataflow to" [label=0.67]
+	browser [label="browser
+2.94% fixations
+2.77% duration" height=0.1385075313538997 width=0.1385075313538997]
+	browser -> OOB [label=0.02]
+	browser -> browser [label=0.93]
+	browser -> "Analyze Dataflow to" [label=0.03]
+	browser -> Editor1 [label=0.02]
+	Test [label="Test
+21.56% fixations
+22.59% duration" height=1.1294945101921052 width=1.1294945101921052]
+	Test -> OOB [label=0.06]
+	Test -> Run [label=0.02]
+	Test -> Project [label=0.00]
+	Test -> Test [label=0.69]
+	Test -> popup [label=0.00]
+	Test -> "Analyze Dataflow to" [label=0.06]
+	Test -> Editor1 [label=0.16]
+	Test -> "-" [label=0.01]
+	Test -> Editor2 [label=0.00]
+	popup [label="popup
+0.85% fixations
+0.95% duration" height=0.047598223467191864 width=0.047598223467191864]
+	popup -> OOB [label=0.01]
+	popup -> Test [label=0.22]
+	popup -> popup [label=0.58]
+	popup -> "Analyze Dataflow to" [label=0.08]
+	popup -> Editor1 [label=0.11]
+	"Analyze Dataflow to" [label="Analyze Dataflow to
+13.47% fixations
+14.11% duration" height=0.7052513755021785 width=0.7052513755021785]
+	"Analyze Dataflow to" -> OOB [label=0.07]
+	"Analyze Dataflow to" -> Test [label=0.12]
+	"Analyze Dataflow to" -> popup [label=0.00]
+	"Analyze Dataflow to" -> "Analyze Dataflow to" [label=0.62]
+	"Analyze Dataflow to" -> Editor1 [label=0.19]
+	"Analyze Dataflow to" -> "-" [label=0.00]
+	Editor1 [label="Editor1
+43.33% fixations
+44.09% duration" height=2.204520835442647 width=2.204520835442647]
+	Editor1 -> OOB [label=0.03]
+	Editor1 -> Project [label=0.00]
+	Editor1 -> browser [label=0.00]
+	Editor1 -> Test [label=0.08]
+	Editor1 -> popup [label=0.00]
+	Editor1 -> "Analyze Dataflow to" [label=0.06]
+	Editor1 -> Editor1 [label=0.80]
+	Editor1 -> "-" [label=0.02]
+	Editor1 -> Editor2 [label=0.02]
+	"-" [label="-
+4.14% fixations
+2.27% duration" height=0.11331981120606846 width=0.11331981120606846]
+	"-" -> OOB [label=0.07]
+	"-" -> Test [label=0.13]
+	"-" -> "Analyze Dataflow to" [label=0.02]
+	"-" -> Editor1 [label=0.14]
+	"-" -> "-" [label=0.58]
+	"-" -> Editor2 [label=0.06]
+	Editor2 [label="Editor2
+3.69% fixations
+3.46% duration" height=0.17314643110232164 width=0.17314643110232164]
+	Editor2 -> OOB [label=0.01]
+	Editor2 -> Editor1 [label=0.30]
+	Editor2 -> "-" [label=0.05]
+	Editor2 -> Editor2 [label=0.65]
+}

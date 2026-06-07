@@ -1,0 +1,540 @@
+---
+title: "Patchwork Analysis"
+output: html_notebook
+author: Kaia Newman
+date: 04-11-2026
+---
+
+
+```{r}
+# install required packages
+# options(repos = list(CRAN="http://cran.rstudio.com/"))
+# install.packages("knitr")
+# install.packages("rmarkdown")
+# install.packages("multcomp")
+# install.packages("likert")
+# install.packages("lmerTest")
+# install.packages("parameters")
+# install.packages("sqldf")
+# install.packages("stargazer")
+# install.packages("GGally")
+# install.packages("broom.mixed")
+# install.packages("patchwork")
+# install.packages("ggpubr")
+# install.packages("merDeriv")
+# install.packages("AER")
+# install.packages("effectsize")
+# install.packages("tidyverse")
+# install.packages("ggplot2")
+# install.packages("performance")
+# install.packages("lme4", type = "source")
+# install.packages("moments")
+install.packages("simr")
+```
+
+# Load libraries
+```{r}
+#load libraries
+library(ggplot2)
+library(grid)
+library(gridExtra)
+library(likert)
+library(RColorBrewer)
+library(dplyr)
+library(tidyr)
+library(readr)
+library(car)
+library(lmerTest)
+library(sqldf)
+library(stargazer)
+library(tidyverse)
+library(GGally)
+library(broom.mixed)
+library(patchwork)
+library(ggpubr)
+library(merDeriv)
+library(nnet)
+library(AER)
+library(corrplot)
+library(effectsize)
+library(rstatix)
+library(performance)
+library(multcomp)
+library(simr)
+library(nnet)
+library(psych)
+
+source("patchwork_processing.R")
+nrow(timing_data)
+```
+```{r}
+# Make full df, gaze-valid df, full df had patch, gaze-valid had patch 
+full_df = read.csv("timing_correctness_data.csv")
+
+# TODO: do a bunch of preprocessing.
+gaze_valid_df = full_df[!is.na(full_df$Source.Code_fixation_count), ]
+full_df_had_patch = full_df[(full_df$condition == "overfitting" | full_df$condition == "correct"), ]
+gaze_valid_had_patch = full_df_had_patch[!is.na(full_df_had_patch$Source.Code_fixation_count), ]
+```
+
+
+# RQ1a: Just run the models from APR, What is it Good For? (ICSE 2024)
+```{r}
+# Note: these are not our final models for this RQ, and were not derived in a principled way. We're just seeing how results generalize.
+str(timing_data[, c("correct", "PID", "bug", "condition")])
+
+correctness_model = glmer(correct ~ condition + (1 |PID) + (1 | bug), data = timing_data, family = binomial)
+
+summary(correctness_model)
+
+timing_model = lmer(time_minutes ~ condition + num_prev + (1 | PID) + (1 | bug), data = timing_data)
+
+summary(timing_model)
+
+# Redo significance testing 
+k1 <- glht(timing_model, mcp(condition="Tukey"))$linfct
+k2 <- glht(timing_model, mcp(num_prev="Tukey"))$linfct
+posthoc <- glht(timing_model, linfct = rbind(k1,k2))
+summary(posthoc)
+model_parameters(timing_model)
+
+r2(timing_model)
+Anova(timing_model)
+```
+# RQ1a: How do patch suggestions affect time and accuracy of debugging sessions? (Section FIXME) 
+```{r}
+# And now, as determined by the DAG, participant insights, and prior literature, we define the maximal model
+# FIXED EFFECTS:
+# key players: treatment condition, professional YOE. these are the ones we'll try nested models for in LRT.
+# intellij/java experience
+# self-efficacy scores
+# number of previous tasks, looking for ordering effects 
+
+# Note: my intuition is that professional YOE/professional identity are too related as constructs for what we're trying to measure (latent expertise) to include both
+# in the same model
+
+# We would include treatment condition * professional YOE (hypothesis from participants: professionals might be less affected by wrong patches) and some other interaction effects, but we don't really have enough samples to be able to do this
+
+# RANDOM EFFECTS:
+# bug, PID
+# optimizer maybe helps the convergence some because it goes for more iterations
+
+full_correctness_model = glmer(correct ~ condition + professional_YOE
+                              + java_intellij_experience + self_efficacy + num_prev
+                              + (1 | PID) + (1 | bug), 
+                              data = timing_data, 
+                              family = binomial)
+
+# Do LRT to see whether condition, professional_YOE, and professional_YOE:condition improve the model
+correctness_model_no_condition = glmer(correct ~ professional_YOE
+                              + java_intellij_experience + self_efficacy + num_prev
+                              + (1 | PID) + (1 | bug), 
+                              data = timing_data, 
+                              family = binomial)
+condition_LRT = anova(full_correctness_model, correctness_model_no_condition)
+
+correctness_model_no_YOE = glmer(correct ~ condition
+                              + java_intellij_experience + self_efficacy + num_prev
+                              + (1 | PID) + (1 | bug), 
+                              data = timing_data, 
+                              family = binomial)
+YOE_LRT = anova(full_correctness_model, correctness_model_no_YOE)
+
+# BH-correct for multiple comparisons in LRTs and present results
+p_vals = c(
+  condition    = condition_LRT$`Pr(>Chisq)`[2],
+  YOE          = YOE_LRT$`Pr(>Chisq)`[2]
+)
+
+p_adjusted = p.adjust(p_vals, method = "BH")
+
+# print both together for easy comparison
+data.frame(
+  predictor = names(p_vals),
+  p_raw     = p_vals,
+  p_adj     = p_adjusted
+)
+
+# LRT results: YOE does not improve the model
+# Summarize the best model to report
+summary(correctness_model_no_YOE)
+
+# Overall results:
+# Correct patch suggestions predict solution correctness
+# No evidence for overfitting patches making things worse
+
+# Summary stats
+summary(timing_data$time_minutes)
+
+# Look at distribution shape
+# FIXME: log transform? might need to use tobit?
+# we worry about skewness in residuals, not necessarily the skewness of the response times untransformed. but the shape of the data should remain the same if transformed
+hist(timing_data$time_minutes, breaks = 30)
+
+full_timing_model = glmer(time_minutes ~ condition + professional_YOE
+                              + java_intellij_experience + self_efficacy + num_prev
+                              + (1 | PID) + (1 | bug), 
+                              data = timing_data, 
+                              family = Gamma(link="log"))
+
+# Check residuals because of skewness 
+residuals = resid(full_timing_model)
+hist(residuals)
+paste0("This is the skewness of the residuals: ", skewness(residuals))
+
+# correcting for multiple comparisons for categorical predictors
+k1 <- glht(timing_model, mcp(condition="Tukey"))$linfct
+k2 <- glht(timing_model, mcp(num_prev="Tukey"))$linfct
+posthoc <- glht(timing_model, linfct = rbind(k1,k2))
+summary(posthoc)
+model_parameters(timing_model)
+
+r2(timing_model)
+Anova(timing_model)
+```
+# RQ4: How do patch suggestions influence cognitive load during debugging? (Section FIXME)
+```{r}
+# High level plan: do subjective reports from NASA-TLX, and then see if eye tracking metrics agree with the self-reports
+
+# do model with self-reported predictors here
+cognitive_load_model = lmer(cognitive_load ~ condition + professional_YOE
+                              + java_intellij_experience + num_prev
+                              + (1 | PID) + (1 | bug), 
+                              data = timing_data)
+
+summary(cognitive_load_model)
+
+# Redo significance testing
+k1 <- glht(cognitive_load_model, mcp(condition="Tukey"))$linfct
+k2 <- glht(cognitive_load_model, mcp(num_prev="Tukey"))$linfct
+posthoc <- glht(cognitive_load_model, linfct = rbind(k1,k2))
+summary(posthoc)
+model_parameters(cognitive_load_model)
+standardize_parameters(cognitive_load_model)
+
+r2(cognitive_load_model)
+Anova(cognitive_load_model)
+
+# Gaze metrics related to cognitive load: average fixation duration
+# related metric:
+# avg_fixation_duration
+fix_duration_model = glmer(avg_fixation_duration ~ had_patch + (1|PID) + (1|bug), 
+                          data = timing_data,
+                          family = Gamma(link="log"))
+summary(fix_duration_model)
+anova(fix_duration_model)
+```
+
+# Confusion matrix for patch judgments
+```{r}
+confusion_data <- had_patch %>%
+  group_by(think_patch_correct, patch_correct) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  mutate(
+    pct = round(n / sum(n) * 100, 1),
+    think_label = ifelse(think_patch_correct == 1, "Think: Correct", "Think: Incorrect"),
+    actual_label = ifelse(patch_correct == 1, "Actually: Correct", "Actually: Incorrect")
+  )
+
+had_patch
+
+ggplot(confusion_data, aes(x = actual_label, y = think_label, fill = n)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = paste0(n, "\n(", pct, "%)")), size = 6) +
+  scale_fill_gradient(low = "white", high = "steelblue") +
+  labs(x = "Actual", y = "Think", fill = "Count", title = "Confusion Matrix for Patch Judgments") +
+  theme_minimal() +
+  theme(
+    axis.text = element_text(size = 13),
+    axis.title = element_text(size = 14)
+  )
+
+# Chi^2 test between think patch correct and actually correct
+patch_table = table(had_patch$condition, had_patch$think_patch_correct)
+patch_table = patch_table[rownames(patch_table) != "control",]
+
+chisq.test(patch_table)
+
+# People are statistically significantly inclined to agree with reality
+
+# TODO: test to see if IDK response
+
+ggsave("patch_confusion_matrix.png", width = 6, height = 5, dpi = 300)
+```
+
+# Confusion matrix for correctness 
+```{r}
+confusion_data2 <- correct_no_idk %>%
+  group_by(think_correct, correct) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  mutate(
+    pct = round(n / sum(n) * 100, 1),
+    think_label = ifelse(think_correct == 1, "Think: Correct", "Think: Incorrect"),
+    actual_label = ifelse(correct == 1, "Actually: Correct", "Actually: Incorrect")
+  )
+
+ggplot(confusion_data2, aes(x = actual_label, y = think_label, fill = n)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = paste0(n, "\n(", pct, "%)")), size = 6) +
+  scale_fill_gradient(low = "white", high = "steelblue") +
+  labs(x = "Actual", y = "Think", fill = "Count", title = "Confusion Matrix for Solution Judgments") +
+  theme_minimal() +
+  theme(
+    axis.text = element_text(size = 13),
+    axis.title = element_text(size = 14)
+  )
+
+# Chi^2 test between actual correctness and think their solution is correct
+correct_table = table(correct_no_idk$correct, correct_no_idk$think_correct)
+
+res = chisq.test(correct_table)
+res
+res$stdres
+
+# Indeed, people are statistically significantly inclined to agree with reality
+
+# Total for accuracy of correctness judgments
+judgment_accuracy = 38.7 + 40.5
+paste0("Total accuracy of correctness judgments: ", judgment_accuracy, "%")
+
+ggsave("confusion_matrix.png", width = 6, height = 5, dpi = 300)
+
+# FIXME: do analyses of whether or not professionals are more likely to say 'IDK'
+```
+
+# Testing hypotheses for RQ2: What debugging strategies and behaviors distinguish successful from unsuccessful debugging attempts? (Section FIXME)
+# Hypotheses derived from interview data
+```{r}
+# TODO: figure out survivor analysis with anything where the outcome variable is time
+
+# FIXME: broken, skewness won't work and might be masked by a different package (parameters)
+# helper function to check if model residuals are normally distributed
+check_residuals <- function(model) {
+  model_name <- deparse(substitute(model))
+  resids     <- residuals(model)
+  skew       <- skewness(resids)
+  
+  par(mfrow = c(1, 2))
+  hist(resids, main = paste("Residuals:", model_name), xlab = "Residuals")
+  qqnorm(resids, main = model_name)
+  qqline(resids, col = "red")
+  par(mfrow = c(1, 1))
+  
+  cat(model_name, "- residual skewness:", round(skew, 3), "\n")
+  if (abs(skew) > 0.5) {
+    cat("  ^ consider a different model family or transform response var\n")
+  }
+}
+
+# Hypothesis: people who look at the patch early on may be anchored to the patch's solution and may finish the task faster/more correctly
+# expect condition:TTFF interaction ~ correctness and TTFF ~ time in glmer model
+# TODO: make sure it's dropping all the relevant columns
+
+# ttff_patch, avg_fixation_duration_patch (~ correctness)
+ttff_patch_model = glmer(correct ~ ttff_patch + (1|PID) + (1|bug), 
+                 data = timing_data, family = binomial)
+summary(ttff_patch_model)
+
+ttff_patch_model_time = lmer(time_minutes ~ ttff_patch + (1|PID) + (1|bug), 
+                 data = timing_data)
+summary(ttff_patch_model_time)
+anova(ttff_patch_model_time)
+
+# Hypothesis: Some developers described spending a while evaluating the patch and developing suspicion about it. Developers who look at the patch for longer or more carefully may be more likely to debug correctly or quickly. 
+# fixation %/count and average fixation duration ~ correctness
+# TODO: putting condition just for correctness since it appears to differ between overfitting/correct?
+avg_dur_patch_model = glmer(correct ~ avg_fixation_duration_patch + condition + (1|PID) + (1|bug), 
+                 data = timing_data, family = binomial)
+summary(avg_dur_patch_model)
+
+avg_dur_patch_model_time = lmer(time_minutes ~ avg_fixation_duration_patch + (1|PID) + (1|bug), 
+                 data = timing_data)
+summary(avg_dur_patch_model_time)
+anova(avg_dur_patch_model_time)
+
+# Hypothesis: Developers report triangulating multiple sources of information (tests, test output, code, patch, web-search) to debug, and prior work supports the idea that higher attention switching behavior correlates with accurate proof correction/problem-solving. Developers who exhibit higher attention switching behavior between AOIs may be more likely to debug correctly.
+# look at number of cross-AOI switches / time ~ correctness
+attention_switch_model = glmer(correct ~ attention_switching_rate + (1|PID) + (1|bug), 
+                 data = timing_data, family = binomial)
+summary(attention_switch_model)
+
+attention_switch_model_time = lmer(time_minutes ~ attention_switching_rate + (1|PID) + (1|bug), 
+                 data = timing_data)
+
+# Hypothesis: Overwhelmingly, developers report having access to a patch speeding up fault localization. When developers have access to a patch, do they find the location of the bug faster and search more efficiently? 
+# TTFF on buggy method ~ has_patch
+# fixation rate ~ has_patch 
+# check for subset of trials on Chart 12 -- this one had an overfitting patch that was not in the correct method
+# First do logistic regression: did having a patch help people look at the buggy method more at all? 
+# Then, try a survival analysis -- we have good reason to try this since we're trying to predict the time until an event occurs, with right-censored data
+# TODO: ask Marie about fixation_rate: the intent was to see if having a patch made them have more efficient search, yes? is this for cognitive load RQ? 
+fl_model = glmer(looked_at_buggy_method ~ had_patch + (1|PID) + (1|bug), 
+                 data = timing_data, family = binomial)
+summary(fl_model)
+
+fix_rate_model = lmer(fixation_rate ~ had_patch + (1|PID) + (1|bug), data = timing_data)
+summary(fix_rate_model)
+anova(fix_rate_model)
+
+# unfortunately, don't have enough data to just try this for chart12 since it embedded incorrect FL info
+
+# Hypothesis: Along similar lines, developers also report having access to a patch narrowing their focus. When developers have access to a patch, do they look at a more narrow slice of a codebase or have a "pointier" distribution of attention?
+# num_files_looked_at (should account for time confound), fixation_duration_entropy
+# an offset just makes the coefficient 1, so creates assumption where there is a 1:1 relationship between the amount of time spent on task and the number of files you look at
+num_files_m <- glmer(num_files_looked_at ~ had_patch + offset(log(time_minutes)) + (1|PID) + (1|bug), 
+           data = timing_data, family = poisson)
+summary(num_files_m)
+
+entropy_m = lmer(fixation_duration_entropy ~ had_patch + (1|PID) + (1|bug), 
+                 data = timing_data)
+summary(entropy_m)
+
+# TODO check all the residuals like so:
+# check_residuals(entropy_m)
+```
+
+
+# ART ANOVA for:
+# RQ2: What debugging strategies and behaviors distinguish successful from unsuccessful debugging attempts? (Section FIXME)
+# RQ3: How do patch suggestions influence developers' debugging strategies and behaviors? (Section FIXME)
+```{r}
+library("ARTool")
+og_timing_data = timing_data
+# TODO: determine whether '-' and 'Unknown/OOB' AOIs are MNAR by drawing pic. comment on this in paper
+
+# Then, remove the "Patch" AOI for gaze distributions between correct vs. incorrect trials
+# This is appropriate given our RQ targets how debugging behaviors /change/ in response to a patch, so we expect there to be some difference on the distribution
+# over other AOIs
+
+# TODO: also look at differences between when people got the problem correct/wrong just for when they had a patch 
+
+# Find count and duration columns
+fixation_count_cols    <- grep("fixation_count", names(timing_data), value = TRUE)
+fixation_duration_cols <- grep("fixation_duration", names(timing_data), value = TRUE)
+
+# Exclude other duration metrics from columns
+# And also exclude patch fixations from the columns, since we're only interested in seeing how this affected other stages of debugging
+fixation_duration_cols = fixation_duration_cols[fixation_duration_cols != "avg_fixation_duration"
+                                                 & fixation_duration_cols != "avg_fixation_duration_patch"
+                                                 & fixation_duration_cols != "fixation_duration_entropy"
+                                                 & fixation_duration_cols != "Patch_fixation_duration"
+                                                 & fixation_duration_cols != "OOB_fixation_duration"
+                                                 & fixation_duration_cols != "X._fixation_duration"]
+
+# Exclude missing data for AOIs or fixations outside of AOIs we consider
+fixation_count_cols = fixation_count_cols[fixation_count_cols != "Patch_fixation_count"
+                                          & fixation_count_cols != "X._fixation_count"
+                                          & fixation_count_cols != "OOB_fixation_count"]
+
+# fill 0s for NAs left in the fixation_counts/durations columns per row because ART can't work on NAs
+timing_data[fixation_count_cols][is.na(timing_data[fixation_count_cols])] = 0
+timing_data[fixation_duration_cols][is.na(timing_data[fixation_duration_cols])] = 0
+
+# Create columns for the total counts and durations, then columns for the proportions of counts and durations per AOI
+timing_data$total_fixation_count    <- rowSums(timing_data[, fixation_count_cols], na.rm = TRUE)
+timing_data$total_fixation_duration <- rowSums(timing_data[, fixation_duration_cols], na.rm = TRUE)
+timing_data[, paste0("prop_", fixation_count_cols)]    <- timing_data[, fixation_count_cols] / timing_data$total_fixation_count
+timing_data[, paste0("prop_", fixation_duration_cols)] <- timing_data[, fixation_duration_cols] / timing_data$total_fixation_duration
+
+# Subset to only participant-tasks where we had valid gaze data
+timing_data <- timing_data[timing_data$total_fixation_count > 0, ]
+print(nrow(timing_data))
+table(timing_data$correct)
+table(timing_data$had_patch)
+
+run_art_analysis <- function(timing_data, prop_cols, group_var, metric) {
+
+  # makes 'AOI' a column so there's a row for each one per participant-task
+  timing_data_long <- reshape(
+    timing_data[, c("PID", "bug", group_var, prop_cols)],
+    varying   = prop_cols,
+    v.names   = "proportion",
+    timevar   = "AOI",
+    times     = prop_cols,
+    direction = "long"
+  )
+  
+  rownames(timing_data_long) <- NULL
+  
+  # remove leading crap from AOI names
+  timing_data_long$AOI <- gsub("prop_|_fixation_count|_fixation_duration", "", timing_data_long$AOI)
+
+  timing_data_long$AOI            <- factor(timing_data_long$AOI)
+  timing_data_long[[group_var]]   <- factor(timing_data_long[[group_var]])
+  timing_data_long$PID <- factor(timing_data_long$PID)
+  
+# Visualization code 
+# Compute mean proportion per AOI per group
+means <- aggregate(proportion ~ AOI + get(group_var), data = timing_data_long, FUN = mean)
+names(means)[2] <- group_var
+
+# Reshape to wide for barplot
+means_wide <- reshape(means,
+  idvar     = "AOI",
+  timevar   = group_var,
+  v.names   = "proportion",
+  direction = "wide"
+)
+rownames(means_wide) <- means_wide$AOI
+means_wide$AOI <- NULL
+# \\. is an escape sequence for . so it means a literal dot instead of a regex
+colnames(means_wide) <- gsub("proportion\\.", "", colnames(means_wide))
+
+# Plot
+colors <- rainbow(nrow(means_wide))
+barplot(as.matrix(means_wide),
+  col     = colors,
+  legend  = rownames(means_wide),
+  beside  = FALSE,
+  main    = paste0("Proportion of fixation ", metric, "s by AOI and ", group_var),
+  xlab    = group_var,
+  ylab    = "Mean proportion",
+  args.legend = list(x = "topright")
+)
+  # Run the analysis
+  formula <- as.formula(paste("proportion ~", group_var, "* AOI + (1|PID) + (1|bug)"))
+  m <- art(formula, data = timing_data_long)
+  return(list(model = m, anova = anova(m), data = timing_data_long))
+}
+
+# Seeing the difference in proportions between fixation counts and durations over AOIs given patch vs. no patch, correct vs. incorrect
+count_prop_cols    <- paste0("prop_", fixation_count_cols)
+duration_prop_cols <- paste0("prop_", fixation_duration_cols)
+
+res1 <- run_art_analysis(timing_data, count_prop_cols,    "correct", "count")
+res2 <- run_art_analysis(timing_data, count_prop_cols,    "had_patch", "count")
+res3 <- run_art_analysis(timing_data, duration_prop_cols, "correct", "duration")
+res4 <- run_art_analysis(timing_data, duration_prop_cols, "had_patch", "duration")
+
+
+# Correct for multiple comparisons across interaction p-values
+extract_pvalues <- function(res, analysis_name) {
+  if (is.null(res$anova)) return(NULL)
+  
+  pvals <- res$anova$`Pr(>F)`
+  effects <- rownames(res$anova)
+  
+  data.frame(
+    analysis = analysis_name,
+    effect   = effects,
+    p_value  = pvals
+  )
+}
+
+# Collect all p-values
+pval_df <- rbind(
+  extract_pvalues(res1, "count ~ correct"),
+  extract_pvalues(res2, "count ~ had_patch"),
+  extract_pvalues(res3, "duration ~ correct"),
+  extract_pvalues(res4, "duration ~ had_patch")
+)
+
+# subset to interaction effects since those are our RQs and adjust
+interaction_rows <- grepl(":", pval_df$effect)
+pval_df$p_adjusted <- NA
+pval_df$p_adjusted[interaction_rows] <- p.adjust(pval_df$p_value[interaction_rows], method = "BH")
+
+# Print
+print(pval_df)
+```
+

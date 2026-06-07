@@ -1,0 +1,46 @@
+digraph {
+	Browser [label="Browser
+7.36% fixations
+7.07% duration" height=0.35325890580162805 width=0.35325890580162805]
+	"Execution Inspection" [label="Execution Inspection
+0.09% fixations
+0.10% duration" height=0.004764807686070141 width=0.004764807686070141]
+	Patch [label="Patch
+3.68% fixations
+3.69% duration" height=0.1845399265309134 width=0.1845399265309134]
+	Popup [label="Popup
+5.03% fixations
+5.27% duration" height=0.26357707940865016 width=0.26357707940865016]
+	"Project Explorer" [label="Project Explorer
+5.04% fixations
+5.44% duration" height=0.27209823259874344 width=0.27209823259874344]
+	"Source Code" [label="Source Code
+42.00% fixations
+41.30% duration" height=2.065245896861615 width=2.065245896861615]
+	"Test and Run Output" [label="Test and Run Output
+10.64% fixations
+11.67% duration" height=0.5833549466535362 width=0.5833549466535362]
+	Tests [label="Tests
+17.69% fixations
+17.27% duration" height=0.8636970590308592 width=0.8636970590308592]
+	Browser -> Patch [label=0.16]
+	Browser -> Tests [label=0.61]
+	"Execution Inspection" -> "Source Code" [label=0.56]
+	"Execution Inspection" -> Tests [label=0.28]
+	Patch -> Browser [label=0.22]
+	Patch -> "Project Explorer" [label=0.21]
+	Patch -> "Source Code" [label=0.32]
+	Popup -> "Source Code" [label=0.61]
+	Popup -> Tests [label=0.17]
+	"Project Explorer" -> "Source Code" [label=0.33]
+	"Project Explorer" -> "Test and Run Output" [label=0.20]
+	"Project Explorer" -> Tests [label=0.24]
+	"Source Code" -> Popup [label=0.26]
+	"Source Code" -> "Test and Run Output" [label=0.28]
+	"Source Code" -> Tests [label=0.21]
+	"Test and Run Output" -> "Source Code" [label=0.40]
+	"Test and Run Output" -> Tests [label=0.40]
+	Tests -> Browser [label=0.20]
+	Tests -> "Source Code" [label=0.28]
+	Tests -> "Test and Run Output" [label=0.30]
+}

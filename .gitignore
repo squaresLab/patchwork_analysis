@@ -1,0 +1,16 @@
+*.csv
+*.png
+*.pkl
+aggregated_metrics/*.csv
+aggregated_metrics/*.png
+aggregated_metrics/*.pkl
+!timing_correctness_data.csv
+.DS_Store
+.RData
+.Rhistory
+.venv
+*.nb.html
+__pycache__/
+*.pyc
+*.pyo
+nohup.out

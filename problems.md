@@ -143,5 +143,36 @@ such errors, if nothing else.
 
 
 * Survival analysis for regressions with time as the outcome (time to first fixation on buggy method, time\_minutes)? Still have not solved the skewed residuals problem  
+
+
 * Should we include condition as a predictor for analyses on gaze data where participants had a patch? Has two levels: overfitting, correct. We saw similar effects from both types of patches on response time  
+
+- Claire response: depends on what you're predicting/outcome, and you should
+test this per model, in the same way I did for the previous paper (and as I
+think we've discussed previously). You absolutely don't want to drop it for
+correctness because my tired eyeballing says that condition is the single
+strongest predictor there.  So for any model where correct is the outcome
+variable, you need to keep it. 
+
+For timing/effort/process gaze outcomes, they do look alike, just smell
+checking.  This is consistent IIRC with a lot of what we saw in 24, for time,
+but I could be misremembering.  So for those outcomes condition is probably a weak
+covariate and is mostly costing you a degree of freedom, aka a bummer with small
+data, so in those models you probably do want to drop it. 
+
+But be principled about it, i.e., test whether it matters (LRT,
+anova(model_with, model_without) or wald term) and model accordingly. This is
+what we did in 24 and isn't p-hacking because you're being up
+front about how you're testing/deciding what to keep.
+
+Conceptual thing: "we saw similar effects on response time" is a statement 
+about condition's effect being small.  But you're basically asking "should I
+keep condition in models that are testing _other outcomes_." So should it be
+kept as a covariate.  What matters there is whether it's a CONFOUNDER of the
+relationship you care about (e.g., does which patch type they  got impact the
+ttff_patch -> outcome connection?).  You want to test that, and the effect of
+condition on its own isn't the question that actually matters, but 
+rather the impact of condition on the thing you _do_ care about. 
+
+
 * Still haven’t selected outliers definitively but P1t1 needs to go (by inspection it is very spotty because they were far away from the trackbox)

@@ -144,7 +144,7 @@ such errors, if nothing else.
 * NEW FROM CLAIRE, related to the fault localization test you want to run, and a
 DIFFERENT ERROR.  On line 617, you do a logistic regression of looked_at_buggy_method ~
 condition... and that gives you a `Warning:  Hessian is numerically singular:
- parameters are not uniquely determined`.
+parameters are not uniquely determined`.
 
 This is a separation problem, namely that a fixed effect (condition) perfectly
 predicts the binary outcome.  Data breaks down as:
@@ -176,11 +176,11 @@ THAT SAID I think "time to first look at buggy method" is almost certainly more
 interesting (I hope?), but that needs a survival model. You want to look at
 residuals for this (you have a comment) before deciding and sure, you can do
 that, but it's pretty conceptually clear that it's a survival model situation.
-The event is "first fixation on the buggy method, time is ttff_buggy_method and
+The event is first fixation on the buggy method (ttff_buggy_method) and
 people who never looked are censored (not dropped, which is what's currently
 happening). 
 
-This would be extra nice because you can answer both "whether you ever looked" and
+This would be extra nice because you can look at "whether you ever looked" and
 "how quickly" in a single model instead of splitting them into a logistic and
 (broken) linear model (as the code now does it).  
 

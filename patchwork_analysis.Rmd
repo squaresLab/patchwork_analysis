@@ -74,8 +74,6 @@ full_df$would_submit[full_df$would_submit == 'Y' | full_df$would_submit == 'P'] 
 # Make columns for correct patch/fix judgments 
 full_df$accurate_about_correctness = (full_df$correct == TRUE & full_df$think_correct == 'YP') | 
                                       (full_df$correct == FALSE & full_df$think_correct == 'N')
-full_df$accurate_about_patch_correctness = (full_df$correct == TRUE & full_df$think_correct == 'YP') | 
-                                      (full_df$correct == FALSE & full_df$think_correct == 'N')
 
 # Make status column for survival analysis
 full_df$status = ifelse(full_df$time_minutes < 25, TRUE, FALSE)
@@ -317,6 +315,11 @@ full_df_had_patch = full_df[full_df$had_patch, ]
 # relevel bc no control
 full_df_had_patch = droplevels(full_df_had_patch)
 
+full_df_had_patch$accurate_about_patch_correctness = (full_df_had_patch$condition == "correct" & full_df_had_patch$think_patch_correct == 'YP') | 
+                                      (full_df_had_patch$correct == "overfitting" & full_df_had_patch$think_patch_correct == 'N')
+full_df_had_patch$accurate_about_patch_correctness = ifelse(is.na(full_df_had_patch$think_patch_correct), NA, full_df_had_patch$accurate_about_patch_correctness)
+full_df_had_patch
+
 gaze_valid_had_patch = full_df_had_patch[!is.na(full_df_had_patch$Source.Code_fixation_count), ]
 gaze_valid_had_patch = droplevels(gaze_valid_had_patch)
 gaze_valid_had_patch[relevant_patch_aoi_duration_cols][is.na(gaze_valid_had_patch[relevant_patch_aoi_duration_cols])] = 0
@@ -454,6 +457,7 @@ as.data.frame.matrix(correct_tab)
 as.data.frame.matrix(patch_correct_tab)
 as.data.frame.matrix(submit_correct_tab)
 
+# sparse, so we simulate
 test_patch = chisq.test(patch_correct_tab, simulate.p.value = TRUE, B = 10000)
 test_correct = chisq.test(correct_tab, simulate.p.value = TRUE, B = 10000)
 test_submit = chisq.test(submit_correct_tab, simulate.p.value = TRUE, B = 10000)

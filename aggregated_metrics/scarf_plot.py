@@ -113,6 +113,9 @@ def draw_scarf(ax, df: pd.DataFrame, trial_order: pd.DataFrame, xmax: float, tit
         if y is None:
             continue
 
+        if row.scarf_aoi == "Missing":
+            continue
+
         window = compute_draw_window(row.start_min, row.end_min, xmax)
         if window is None:
             continue

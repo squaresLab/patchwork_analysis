@@ -264,14 +264,20 @@ for path in paths:
             continue
         aoi = fixation_rows['fixation_AOI'].iloc[0]
 
-        # scarf row (keep all AOIs, bucket non-core as Other)
+        # scarf row (keep all AOIs, bucket non-core as Other or Missing for gazes with only one eye valid)
         # FIXME: check to make sure this makes sense
         fixation_start_ts = fixation_rows['timestamp'].min()
         fixation_duration_ms = fixation_rows['fixation_group_duration'].iloc[0]
         start_min = (fixation_start_ts - session_start) / 1000 / 60
         duration_min = fixation_duration_ms / 1000 / 60
         end_min = start_min + duration_min
-        scarf_aoi = aoi if aoi in relevant_aois else 'Other'
+
+        if aoi == "-":
+            scarf_aoi = 'Missing'
+        elif aoi in relevant_aois:
+            scarf_aoi = aoi
+        else:
+            scarf_aoi = 'Other'
 
         scarf_segments.append({
             'PID': pid,

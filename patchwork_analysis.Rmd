@@ -700,6 +700,10 @@ cor(gaze_valid_df$prop_Test.and.Runtime.Feedback_fixation_duration, gaze_valid_d
 summary(aov(prop_Test.and.Runtime.Feedback_fixation_duration ~ condition, data = gaze_valid_df))
 # not correlated strongly with time as an outcome and condition does not predict it, so it independently is predictive of response hazard
 
+# Find IQR-scaled HR, since the ratio is meaningless for a proportion (increase in 1 is not possible)
+IQR_val <- IQR(gaze_valid_df$prop_Test.and.Runtime.Feedback_fixation_duration, na.rm = TRUE)
+exp(4.2866 * IQR_val)
+
 # spending more of your time looking at the patch is associated with a significantly higher hazard of responding (controlling for condition)
 survival_patch_dur = coxme(Surv(time = time_minutes, event = status) ~ prop_Patch_fixation_duration + condition + (1|bug), data = gaze_valid_had_patch)
 summary(survival_patch_dur)
@@ -822,5 +826,7 @@ dev.off()
 
 gaze_valid_had_patch$ttff_buggy_method_prop_time = (gaze_valid_had_patch$ttff_buggy_method / gaze_valid_had_patch$time_minutes) * 100
 summary(gaze_valid_had_patch$ttff_buggy_method_prop_time)
+
+screener
 ```
 

@@ -199,6 +199,12 @@ for path in paths:
     path = os.path.join(path, filename)
     df = pd.read_csv(path)
 
+    df.sort_values('timestamp', inplace=True)
+    GLITCH_GAP_MS = 30 * 60 * 1000  # 30 min; real within-task gaps are far smaller
+    gaps = df['timestamp'].diff()
+    for idx, gap in gaps[gaps > GLITCH_GAP_MS].items():
+        df.loc[idx:, 'timestamp'] -= gap   # shift this jump and everything after
+
     # Rename all cells in the AOI column that are 'Execution Inspection' to 'Test and Run Output'
     # and rename Test and Run Output to Test and Runtime Feedback (to reflect recent AOI decision)
     df['AOI'] = df['AOI'].replace('Execution Inspection', 'Test and Run Output')

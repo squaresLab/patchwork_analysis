@@ -43,7 +43,7 @@ FRAME_SPECS = [
 		"label": "Patch",
 		"boxes": [
 			# Starter box; adjust after review.
-			(0.62, 0.20, 0.33, 0.22, "Patch"),
+			(0.24, 0.061, 0.735, 0.563, "Patch"),
 		],
 	},
 	{
@@ -52,7 +52,7 @@ FRAME_SPECS = [
 		"label": "Browser",
 		"boxes": [
 			# Browser takes most of the frame except a bottom bar.
-			(0.01, 0.01, 0.98, 0.88, "Browser"),
+			(0.0012, 0.0012, (1.00 - .0024), 0.96, "Browser"),
 		],
 	},
 	{
@@ -61,8 +61,8 @@ FRAME_SPECS = [
 		"label": "Tests + Test and Runtime Feedback",
 		"boxes": [
 			# Starter boxes; adjust after review.
-			(0.02, 0.57, 0.45, 0.40, "Tests"),
-			(0.49, 0.57, 0.49, 0.40, "Test and Runtime Feedback"),
+			(0.24, 0.061, 0.735, 0.563, "Tests"),
+			(0.02, 0.628, 0.954, 0.3, "Test and Runtime Feedback", "top_right"),
 		],
 	},
 ]
@@ -78,9 +78,14 @@ def hex_to_bgr(hex_color: str) -> tuple[int, int, int]:
 
 def draw_labeled_box(
 	image,
-	box_norm: tuple[float, float, float, float, str],
+	box_norm: tuple[float, float, float, float, str] | tuple[float, float, float, float, str, str],
 ) -> None:
-	x_norm, y_norm, w_norm, h_norm, text = box_norm
+	if len(box_norm) == 6:
+		x_norm, y_norm, w_norm, h_norm, text, label_anchor = box_norm
+	else:
+		x_norm, y_norm, w_norm, h_norm, text = box_norm
+		label_anchor = "top_left"
+
 	h, w = image.shape[:2]
 	aoi_name = LABEL_TO_AOI.get(text, "Other")
 	color = hex_to_bgr(AOI_COLORS_HEX.get(aoi_name, AOI_COLORS_HEX["Other"]))
@@ -95,15 +100,40 @@ def draw_labeled_box(
 	font = cv2.FONT_HERSHEY_SIMPLEX
 	scale = 0.8
 	thickness = 2
+	box_w = max(1, x2 - x1)
+	box_h = max(1, y2 - y1)
+	inset = 6
+	label_pad = 6
+
+	# Keep labels inside the box and reduce font size when needed.
+	while scale > 0.4:
+		text_size, _ = cv2.getTextSize(text, font, scale, thickness)
+		text_w, text_h = text_size
+		fits_width = text_w + 2 * label_pad <= box_w - 2 * inset
+		fits_height = text_h + 2 * label_pad <= box_h - 2 * inset
+		if fits_width and fits_height:
+			break
+		scale -= 0.1
+
 	text_size, _ = cv2.getTextSize(text, font, scale, thickness)
 	text_w, text_h = text_size
+	label_w = text_w + 2 * label_pad
+	label_h = text_h + 2 * label_pad
 
-	label_top = max(0, y1 - text_h - 10)
-	label_bottom = y1
-	label_right = min(w, x1 + text_w + 10)
+	if label_anchor == "top_right":
+		label_x2 = x2 - inset
+		label_x1 = max(x1 + inset, label_x2 - label_w)
+	else:
+		label_x1 = x1 + inset
+		label_x2 = min(x2 - inset, label_x1 + label_w)
 
-	cv2.rectangle(image, (x1, label_top), (label_right, label_bottom), color, -1)
-	cv2.putText(image, text, (x1 + 5, label_bottom - 5), font, scale, (0, 0, 0), thickness, cv2.LINE_AA)
+	label_y1 = y1 + inset
+	label_y2 = min(y2 - inset, label_y1 + label_h)
+
+	cv2.rectangle(image, (label_x1, label_y1), (label_x2, label_y2), color, -1)
+	text_x = label_x1 + label_pad
+	text_y = label_y1 + label_pad + text_h
+	cv2.putText(image, text, (text_x, text_y), font, scale, (255, 255, 255), thickness, cv2.LINE_AA)
 
 
 def extract_frame(video_capture: cv2.VideoCapture, timestamp_seconds: int):

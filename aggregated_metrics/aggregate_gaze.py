@@ -93,7 +93,7 @@ def get_aoi_sequence_and_switches(aoi_sequences):
             to_aoi = aoi_sequence[i + 1]
             if from_aoi != to_aoi:
                 total_switches += 1
-                transition_df.loc[from_aoi, to_aoi] += 1
+                transition_df.loc[from_aoi, to_aoi] += 1.0
     
     return transition_df, unique_aois, total_switches
 

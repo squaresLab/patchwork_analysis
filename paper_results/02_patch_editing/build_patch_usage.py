@@ -47,7 +47,7 @@ from pathlib import Path
 from typing import Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
-from patchwork_io import DATA, TIMING_CSV, disk_pid, is_project_java
+from patchwork_io import DATA, TIMING_CSV, disk_pid, is_source
 
 OUT = Path(__file__).resolve().parent / "patch_usage.csv"
 
@@ -610,8 +610,6 @@ def classify_endstate(
 # ---------------------------------------------------------------------------
 # IDE event stream mechanism flags
 # ---------------------------------------------------------------------------
-SOURCE_ROOTS = ("/src/main/", "/source/", "/chart12/source/")
-TEST_ROOTS = ("/src/test/", "/tests/", "/chart12/tests/")
 PASTE_ACTIONS = {"EditorPaste"}
 COPY_ACTION = "EditorCopy"
 APPLY_ACTION = "ChangesView.ApplyPatch"
@@ -633,14 +631,6 @@ TRANSCRIBE_HI = 0.80  # containment fraction
 AUTOCOMPLETE_MAX = 2  # allow a couple autocomplete events before untrusted
 
 MECH_TOKEN_RE = re.compile(r"[A-Za-z0-9_]+|[^\sA-Za-z0-9_]")
-
-
-def is_source(path: str) -> bool:
-    if not is_project_java(path):
-        return False
-    if any(path.startswith(r) for r in TEST_ROOTS):
-        return False
-    return any(path.startswith(r) for r in SOURCE_ROOTS)
 
 
 def task_dirs(disk_pid: str, task_no: int) -> list[Path]:

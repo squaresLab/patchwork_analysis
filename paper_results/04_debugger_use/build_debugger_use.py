@@ -41,7 +41,7 @@ from pathlib import Path
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
-from patchwork_io import DATA, TIMING_CSV, disk_pid, is_project_java
+from patchwork_io import TIMING_CSV, is_source, is_test, resolve_logs
 
 HERE = Path(__file__).resolve().parent
 OUT = HERE / "ide_events.csv"
@@ -57,41 +57,8 @@ NAV = {"GotoImplementation", "GotoDeclaration", "GotoTypeDeclaration", "Find",
        "GotoLine"}
 UNDO = {"$Undo", "$Redo"}
 
-# Project source/test roots, from the actual logs. Test roots are checked before
-# source roots so a test file is never misclassified as source.
-SOURCE_ROOTS = ("/src/main/", "/source/", "/chart12/source/")
-TEST_ROOTS = ("/src/test/", "/tests/", "/chart12/tests/")
-
 COUNT_KEYS = ["n_test_run", "n_debugger", "n_source_edit", "n_test_edit",
               "n_navigation", "n_undo", "n_apply_patch"]
-
-
-def is_test(path: str) -> bool:
-    if not is_project_java(path):
-        return False
-    return any(path.startswith(root) for root in TEST_ROOTS)
-
-
-def is_source(path: str) -> bool:
-    if not is_project_java(path):
-        return False
-    if any(path.startswith(root) for root in TEST_ROOTS):
-        return False
-    return any(path.startswith(root) for root in SOURCE_ROOTS)
-
-
-def resolve_logs(pid: str, task_no: int) -> list[Path]:
-    """All ide_tracking.xml files for a (PID, task), merging split parts.
-
-    Returns the direct ``t<n>/ide_tracking.xml`` if present; otherwise any
-    ``t<n>_part*/ide_tracking.xml`` parts. Empty if none exist.
-    """
-    base = DATA / disk_pid(pid)
-    direct = base / f"t{task_no}" / "ide_tracking.xml"
-    if direct.exists():
-        return [direct]
-    parts = sorted(base.glob(f"t{task_no}_part*/ide_tracking.xml"))
-    return list(parts)
 
 
 def parse_logs(xml_paths: list[Path]) -> dict:

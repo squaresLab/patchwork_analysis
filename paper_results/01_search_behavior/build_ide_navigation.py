@@ -46,7 +46,7 @@ from pathlib import Path
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
-from patchwork_io import DATA, TIMING_CSV, disk_pid, is_project_java
+from patchwork_io import TIMING_CSV, is_project_java, resolve_logs
 
 HERE = Path(__file__).resolve().parent
 TIMING = TIMING_CSV
@@ -63,20 +63,6 @@ NAV = {
 # fileOpened paths that are not project code even when the remark is plain
 # "fileOpened" (defensive; the NotCodeFile remark already tags these).
 NON_CODE_PATHS = {"/suggested.patch", "/Diff"}
-
-
-def resolve_logs(pid: str, task_no: int) -> list[Path]:
-    """All ide_tracking.xml files for a (PID, task), merging split parts.
-
-    Returns the direct ``t<n>/ide_tracking.xml`` if present; otherwise any
-    ``t<n>_part*/ide_tracking.xml`` parts. Empty if none exist.
-    """
-    base = DATA / disk_pid(pid)
-    direct = base / f"t{task_no}" / "ide_tracking.xml"
-    if direct.exists():
-        return [direct]
-    parts = sorted(base.glob(f"t{task_no}_part*/ide_tracking.xml"))
-    return list(parts)
 
 
 def _is_opened_project_java(path: str, remark: str) -> bool:

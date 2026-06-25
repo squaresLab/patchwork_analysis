@@ -61,7 +61,7 @@ import numpy as np
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
-from patchwork_io import DATA, ROOT, TIMING_CSV, disk_pid, is_project_java
+from patchwork_io import DATA, TIMING_CSV, disk_pid, is_source
 
 HERE = Path(__file__).resolve().parent
 OUT = HERE / "validation_window_model_input.csv"
@@ -74,30 +74,6 @@ EDIT_ACTIONS = {
     "EditorEnter", "SaveAll", "CommentByLineComment", "EditorChooseLookupItem",
     "EditorChooseLookupItemReplace",
 }
-
-# Project source/test roots, derived from the actual logs. Layouts differ by
-# project: commons-math / commons-lang use the Maven /src/main & /src/test
-# layout; jfreechart uses /source & /tests. The rare /chart12/{source,tests}
-# variants are folded in. Test roots are checked before source roots so that a
-# test file is never misclassified as source.
-SOURCE_ROOTS = ("/src/main/", "/source/", "/chart12/source/")
-TEST_ROOTS = ("/src/test/", "/tests/", "/chart12/tests/")
-
-
-def is_test(path: str) -> bool:
-    if not is_project_java(path):
-        return False
-    return any(path.startswith(root) for root in TEST_ROOTS)
-
-
-def is_source(path: str) -> bool:
-    if not is_project_java(path):
-        return False
-    # Check test first: a path under a test root must never count as source.
-    if any(path.startswith(root) for root in TEST_ROOTS):
-        return False
-    return any(path.startswith(root) for root in SOURCE_ROOTS)
-
 
 def parse_task(xml_path: Path) -> dict[str, float | int | None]:
     """Stream the actions + typing elements; return (t0, t_last_source_edit).
@@ -296,6 +272,9 @@ def main() -> None:
             continue  # no IDE log -> not in the validation-window analysis
         feat = parse_task(xml)
         t0 = feat["t0"]
+        # Every analyzed task has IDE events, so t0 (the first event timestamp) is
+        # always set; t0 is None only for an empty log, which does not occur here.
+        assert t0 is not None
         t_last = feat["t_last_source_edit"]
         has_window = t_last is not None
         has_gaze = has_gaze_by_task[(pid, task_no)]

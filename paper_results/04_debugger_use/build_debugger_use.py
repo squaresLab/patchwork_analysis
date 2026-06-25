@@ -41,21 +41,22 @@ from pathlib import Path
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
-from patchwork_io import TIMING_CSV, is_source, is_test, resolve_logs
+from patchwork_io import (
+    APPLY_ACTION,
+    DEBUGGER,
+    EDIT_ACTIONS,
+    NAV,
+    TEST_RUN,
+    TIMING_CSV,
+    UNDO,
+    is_source,
+    is_test,
+    iter_ide_events,
+    resolve_logs,
+)
 
 HERE = Path(__file__).resolve().parent
 OUT = HERE / "ide_events.csv"
-
-TEST_RUN = {"Run", "Rerun", "RunClass", "RunAnything", "DebugClass"}
-DEBUGGER = {"StepOver", "StepInto", "StepOut", "Resume", "ToggleLineBreakpoint",
-            "RunToCursor", "ViewBreakpoints", "AddConditionalBreakpoint"}
-EDIT_ACTIONS = {"EditorPaste", "EditorBackSpace", "EditorDeleteToWordStart",
-                "EditorCut", "EditorEnter", "SaveAll", "CommentByLineComment",
-                "EditorChooseLookupItem", "EditorChooseLookupItemReplace"}
-NAV = {"GotoImplementation", "GotoDeclaration", "GotoTypeDeclaration", "Find",
-       "FindInPath", "SearchEverywhere", "ViewSource", "Back", "Forward",
-       "GotoLine"}
-UNDO = {"$Undo", "$Redo"}
 
 COUNT_KEYS = ["n_test_run", "n_debugger", "n_source_edit", "n_test_edit",
               "n_navigation", "n_undo", "n_apply_patch"]
@@ -73,19 +74,14 @@ def parse_logs(xml_paths: list[Path]) -> dict:
     source_edit_ts: list[int] = []
 
     for xml_path in xml_paths:
-        for _event, elem in ET.iterparse(xml_path, events=("end",)):
-            tag = elem.tag
-            if tag == "action":
-                # P*_0 participants use id="..."; everyone else event="...".
-                ev = elem.get("event")
-                if ev is None:
-                    ev = elem.get("id", "")
-                ts = elem.get("timestamp")
-                path = elem.get("path", "") or ""
+        for kind, attrs in iter_ide_events(xml_path):
+            if kind == "action":
+                ev = attrs["key"]
+                ts = attrs["timestamp"]
+                path = attrs["path"]
                 if ts is not None:
-                    ts = int(ts)
                     timestamps.append(ts)
-                    if ev == "ChangesView.ApplyPatch":
+                    if ev == APPLY_ACTION:
                         counts["n_apply_patch"] += 1
                         counts["n_source_edit"] += 1
                         source_edit_ts.append(ts)
@@ -104,21 +100,16 @@ def parse_logs(xml_paths: list[Path]) -> dict:
                             source_edit_ts.append(ts)
                         elif is_test(path):
                             counts["n_test_edit"] += 1
-                elem.clear()
-            elif tag == "typing":
-                ts = elem.get("timestamp")
-                path = elem.get("path", "") or ""
+            elif kind == "typing":
+                ts = attrs["timestamp"]
+                path = attrs["path"]
                 if ts is not None:
-                    ts = int(ts)
                     timestamps.append(ts)
                     if is_source(path):
                         counts["n_source_edit"] += 1
                         source_edit_ts.append(ts)
                     elif is_test(path):
                         counts["n_test_edit"] += 1
-                elem.clear()
-            else:
-                elem.clear()
 
     if not timestamps:
         return {**counts, "t0": None, "duration_ide_min": None,

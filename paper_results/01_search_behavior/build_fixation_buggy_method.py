@@ -7,32 +7,27 @@ the buggy method.
 Note that you probably don't need to run this! The csv it produces from the raw
 fixation data is already in this directory.
 
-The denominator matches Kaia's AOI fixation analysis: normalize by fixation
-duration over the four non-patch AOIs: ``Test and Run Output`` (Test and Runtime
-Feedback --- matched per-AOI durations against timing), Tests, Source
-Code, and Browser. Excludes Patch, Project Explorer, OOB, Popup, ``-``, and
-Execution Inspection. 
+The denominator is fixation duration over the four non-patch AOIs (Test and
+Runtime Feedback, Tests, Source Code, Browser), in the normalized AOI labels of
+the project's AOI aggregation (aggregate_gaze.py). Excludes Patch, Project
+Explorer, OOB, Popup, and ``-``. Execution Inspection is folded into Test and
+Runtime Feedback by the normalization.
 
-The output also shows raw total minutes  (buggy_min, other_min, total_fix_min)
-for the visceral/illustration numbers; they aren't modeled. 
+The output also shows raw total minutes (buggy_min, other_min, total_fix_min)
+for the illustration numbers; they aren't modeled.
 
-Where the data is and where it came from
-----------------------------------------
-Two local inputs, both produced upstream in the project pipeline:
+Inputs:
 
-1. The per-task FIXATION FILES, one per participant-task, is assumed to live at
+1. The per-task FIXATION FILES at
    ``patchwork_data/<PID>/t<task_no>/<PID>_t<task_no>_fixation_filtered.csv``
-   (PID with ``_`` rewritten to ``-`` on disk). Each is the I-VT fixation-filtered
-   gaze stream for that task: one row per gaze sample, carrying the fixation it
-   belongs to (``fixation_group_id``, ``fixation_group_duration``), the AOI it
-   landed on (``AOI``), and whether the gaze was on the buggy method
-   (``on_method``). This analysis re-derives per-AOI fixation durations from
-   these files because of the buggy-vs-other ``on_method`` split: partitioning
-   Source Code fixation into the buggy method versus other source has no
-   pre-computed counterpart. The denominator recomputes total_fixation_duration
-   from Kaia's .Rmd from the same fixation stream. 
+   (PID with ``_`` rewritten to ``-`` on disk). Each is one row per gaze sample,
+   carrying the fixation it belongs to (``fixation_group_id``,
+   ``fixation_group_duration``), the AOI it landed on (``AOI``), and whether the
+   gaze was on the buggy method (``on_method``). Per-AOI fixation durations are
+   re-derived here because the buggy-vs-other ``on_method`` split has no
+   pre-computed counterpart.
 
-2. The TASK LIST taken from ``patchwork_analysis/timing_correctness_data.csv``
+2. The TASK LIST from ``patchwork_analysis/timing_correctness_data.csv``.
 
 Output: ``fixation_buggy_method_input.csv``, a per-task table written in this
 directory and read by ``fixation_buggy_method.R``.
@@ -49,7 +44,13 @@ from pathlib import Path
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
-from patchwork_io import DATA, TIMING_CSV, disk_pid, recover_ms_clock
+from patchwork_io import (
+    DATA,
+    TIMING_CSV,
+    disk_pid,
+    fixation_groups,
+    recover_ms_clock,
+)
 
 HERE = Path(__file__).resolve().parent
 TIMING = TIMING_CSV
@@ -57,10 +58,11 @@ OUT = HERE / "fixation_buggy_method_input.csv"
 
 SOURCE_AOI = "Source Code"
 
-# Non-patch denominator AOIs, matching Kaia's relevant_aoi_duration_cols. The
-# stream label "Test and Run Output" is the same AOI as her
-# "Test and Runtime Feedback" column (verified by per-AOI duration match).
-DENOM_AOIS = {"Test and Run Output", "Tests", "Source Code", "Browser"}
+# Non-patch denominator AOIs, in the normalized AOI labels of the project's AOI
+# aggregation (aggregate_gaze.py). "Test and Runtime Feedback" is the
+# normalized label that folds in "Execution Inspection" and "Test and Run
+# Output".
+DENOM_AOIS = {"Test and Runtime Feedback", "Tests", "Source Code", "Browser"}
 
 # P1 t1 is a tracking failure: it has gaze data, but the data are too spotty to
 # use (Kaia drops it too).
@@ -77,8 +79,10 @@ def truthy(s: pd.Series) -> pd.Series:
 
 def task_props(pid: str, task_no: int) -> tuple[float, float, float] | None:
     """Return (buggy_minutes, other_minutes, nonpatch_fixation_minutes) where the
-    denominator is fixation over the four non-patch AOIs (DENOM_AOIS), matching
-    Kaia. Returns None if the fixation file is missing/empty."""
+    denominator is fixation over the four non-patch AOIs (DENOM_AOIS). The
+    fixation-group AOI is the per-group majority (mode) over normalized AOI
+    labels, matching the project's AOI aggregation (aggregate_gaze.py). Returns
+    None if the fixation file is missing/empty."""
     f = DATA / disk_pid(pid) / f"t{task_no}" / f"{disk_pid(pid)}_t{task_no}_fixation_filtered.csv"
     if not f.exists():
         return None
@@ -90,11 +94,10 @@ def task_props(pid: str, task_no: int) -> tuple[float, float, float] | None:
         return None
     df = recover_ms_clock(df, ts_col="timestamp")
     df = df.assign(on_method=truthy(df["on_method"]))
-    grp = df.groupby("fixation_group_id").agg(
-        aoi=("AOI", "first"),
-        dur_ms=("fixation_group_duration", "first"),
-        any_on=("on_method", "any"),
-    )
+    # Within a Source Code fixation group, the group is "on the buggy method" if
+    # any of its samples are. This buggy-vs-other split is layered on top of the
+    # shared fixation-group reduction.
+    grp = fixation_groups(df, extra_aggs={"any_on": ("on_method", "any")})
     # Denominator: total fixation over the four non-patch AOIs only.
     total_fix = grp.loc[grp["aoi"].isin(DENOM_AOIS), "dur_ms"].sum() / 60000.0
     src = grp[grp["aoi"] == SOURCE_AOI]

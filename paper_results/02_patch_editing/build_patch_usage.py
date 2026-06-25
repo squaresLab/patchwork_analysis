@@ -41,13 +41,21 @@ from __future__ import annotations
 import csv
 import re
 import sys
-import xml.etree.ElementTree as ET
 from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
-from patchwork_io import DATA, TIMING_CSV, disk_pid, is_source
+from patchwork_io import (
+    APPLY_ACTION,
+    DATA,
+    TIMING_CSV,
+    disk_pid,
+    is_source,
+    is_test,
+    iter_ide_events,
+    resolve_logs,
+)
 
 OUT = Path(__file__).resolve().parent / "patch_usage.csv"
 
@@ -343,7 +351,9 @@ class FileEdit:
     def __init__(self, target_path: str) -> None:
         self.target_path = target_path  # full path from +++ header
         self.basename = Path(target_path).name
-        self.is_test = ("/test/" in target_path) or self.basename.endswith("Test.java")
+        # Use the shared segment-based classifier so jfreechart's plural /tests/
+        # and *Tests.java files are recognized as tests, not source.
+        self.is_test = is_test(target_path)
         self.is_java = self.basename.endswith(".java")
         self.added: list[str] = []  # substantive added source lines
         self.hunk_lines: list[tuple[int, int]] = []  # (start,end) post-image
@@ -357,7 +367,6 @@ def parse_participant_diff(diff_path: Path) -> list[FileEdit]:
     """
     edits: list[FileEdit] = []
     current: Optional[FileEdit] = None
-    cur_post_line = 0
     text = diff_path.read_text(encoding="utf-8", errors="replace")
     for line in text.splitlines():
         if (
@@ -381,7 +390,6 @@ def parse_participant_diff(diff_path: Path) -> list[FileEdit]:
                     start = int(m.group(1))
                     count = int(m.group(2)) if m.group(2) else 1
                     current.hunk_lines.append((start, start + count - 1))
-                    cur_post_line = start
             continue
         if current is None:
             continue
@@ -389,11 +397,8 @@ def parse_participant_diff(diff_path: Path) -> list[FileEdit]:
             content = line[1:]
             if is_substantive(content):
                 current.added.append(content)
-            cur_post_line += 1
         elif line.startswith("-"):
-            continue  # removed line; does not advance post-image
-        else:
-            cur_post_line += 1  # context line
+            continue  # removed line
     return [e for e in edits if e.is_java]
 
 
@@ -423,10 +428,18 @@ def _lev(a: str, b: str) -> int:
 
 def _tok_equiv(a: str, b: str) -> bool:
     """Two tokens are equivalent if identical or a typo-near pair (alnum, with
-    char Levenshtein <= TYPO_LEV and within 25% length)."""
+    char Levenshtein <= TYPO_LEV and within 25% length).
+
+    Fuzzy substitution is forbidden when BOTH tokens are length <= 2. Otherwise a
+    single-char difference between two short identifiers (e.g. ``x0`` vs ``x1``,
+    the math50/correct distinguishing edit) would be scored as a typo, masking a
+    participant who did NOT apply the fix. Long-identifier typos such as
+    ``Listner`` vs ``Listener`` are unaffected."""
     if a == b:
         return True
     if not (a.isidentifier() and b.isidentifier()):
+        return False
+    if len(a) <= 2 and len(b) <= 2:
         return False
     if _lev(a, b) > TYPO_LEV:
         return False
@@ -505,6 +518,10 @@ def at_canonical_site(edit: FileEdit, can: CanonicalPatch) -> bool:
         return False
     if can.hunk_start is None or can.hunk_end is None:
         return True
+    # +/-25 source-LINE tolerance around the canonical hunk: a participant's edit
+    # counts as "at the canonical site" if its post-image range comes within 25
+    # lines of the canonical range, absorbing line drift from unrelated edits
+    # above the fix. Unrelated to the 25-minute task cap.
     slack = 25
     for (s, e) in edit.hunk_lines:
         if e >= can.hunk_start - slack and s <= can.hunk_end + slack:
@@ -612,7 +629,6 @@ def classify_endstate(
 # ---------------------------------------------------------------------------
 PASTE_ACTIONS = {"EditorPaste"}
 COPY_ACTION = "EditorCopy"
-APPLY_ACTION = "ChangesView.ApplyPatch"
 SUGGESTED_PATCH_PATH = "/suggested.patch"
 BACKSPACE_ACTIONS = {"EditorBackSpace", "EditorDeleteToWordStart"}
 DELETION_ACTIONS = {
@@ -630,50 +646,36 @@ CONTROL_CHARS = {"0", "1"}  # control-key codes per CodeGRITS logs
 TRANSCRIBE_HI = 0.80  # containment fraction
 AUTOCOMPLETE_MAX = 2  # allow a couple autocomplete events before untrusted
 
-MECH_TOKEN_RE = re.compile(r"[A-Za-z0-9_]+|[^\sA-Za-z0-9_]")
-
-
-def task_dirs(disk_pid: str, task_no: int) -> list[Path]:
-    """Return the IDE-log dir(s) for a task, including split t<n>_part1/2."""
-    base = DATA / disk_pid
-    dirs: list[Path] = []
-    for name in (f"t{task_no}", f"t{task_no}_part1", f"t{task_no}_part2"):
-        d = base / name
-        if (d / "ide_tracking.xml").exists():
-            dirs.append(d)
-    return dirs
-
 
 def stream_events(xml_path: Path):
     """Yield (kind, ts, path, char, line, col) for typing + actions, file order.
 
-    kind is 'type' for typing, or 'action:<event>' for actions. P*_0
-    participants write actions with id= instead of event=; both are handled.
+    kind is 'type' for typing, or 'action:<event>' for actions. Elements
+    without a timestamp are skipped.
     """
-    for _ev, elem in ET.iterparse(xml_path, events=("end",)):
-        if elem.tag == "typing":
-            ts = elem.get("timestamp")
-            if ts is not None:
-                yield (
-                    "type",
-                    int(ts),
-                    elem.get("path", "") or "",
-                    elem.get("character", ""),
-                    int(elem.get("line", -1)),
-                    int(elem.get("column", -1)),
-                )
-        elif elem.tag == "action":
-            ev = elem.get("event", "") or elem.get("id", "")
-            ts = elem.get("timestamp")
-            if ts is not None:
-                yield ("action:" + ev, int(ts), elem.get("path", "") or "", "", -1, -1)
-        elem.clear()
+    for kind, attrs in iter_ide_events(xml_path):
+        if kind not in ("typing", "action"):
+            continue
+        ts = attrs["timestamp"]
+        if ts is None:
+            continue
+        if kind == "typing":
+            yield (
+                "type",
+                ts,
+                attrs["path"],
+                attrs["character"],
+                attrs["line"],
+                attrs["column"],
+            )
+        else:
+            yield ("action:" + attrs["key"], ts, attrs["path"], "", -1, -1)
 
 
-def load_events(dirs: list[Path]) -> list[tuple]:
+def load_events(xml_paths: list[Path]) -> list[tuple]:
     events: list[tuple] = []
-    for d in dirs:
-        events.extend(stream_events(d / "ide_tracking.xml"))
+    for xml_path in xml_paths:
+        events.extend(stream_events(xml_path))
     events.sort(key=lambda e: e[1])
     return events
 
@@ -688,7 +690,6 @@ def reconstruct_typed(events: list[tuple]) -> tuple[str, dict]:
     order: list[tuple[int, int]] = []
     n_typed = 0
     n_autocomplete = 0
-    n_paste_source = 0
     for kind, _ts, path, ch, line, col in events:
         if kind == "type":
             if not is_source(path):
@@ -709,10 +710,11 @@ def reconstruct_typed(events: list[tuple]) -> tuple[str, dict]:
                 if order:
                     last = order.pop()
                     buf.pop(last, None)
-            elif ev in AUTOCOMPLETE and is_source(path):
+            elif ev in AUTOCOMPLETE:
+                # Count autocomplete regardless of path. An autocomplete with an
+                # empty/non-source path still corrupts the positional
+                # reconstruction, so it must feed the AUTOCOMPLETE_MAX guard.
                 n_autocomplete += 1
-            elif ev in PASTE_ACTIONS and is_source(path):
-                n_paste_source += 1
     lines: dict[int, dict[int, str]] = {}
     for (line, col), ch in buf.items():
         lines.setdefault(line, {})[col] = ch
@@ -724,13 +726,12 @@ def reconstruct_typed(events: list[tuple]) -> tuple[str, dict]:
     diag = {
         "n_typed_chars": n_typed,
         "n_autocomplete": n_autocomplete,
-        "n_paste_source": n_paste_source,
     }
     return text, diag
 
 
 def mech_tokens(text: str) -> list[str]:
-    return MECH_TOKEN_RE.findall(text)
+    return TOKEN_RE.findall(text)
 
 
 def similarity(typed: str, added_lines: list[str]) -> dict:
@@ -794,17 +795,17 @@ def compute_deletion(events: list[tuple]) -> bool:
     return False
 
 
-def compute_mechanisms(disk_pid: str, task_no: int, bug: str, cond: str) -> dict:
+def compute_mechanisms(pid: str, task_no: int, bug: str, cond: str) -> dict:
     """All four mechanism flags for one task. Empty/missing logs -> all False."""
-    dirs = task_dirs(disk_pid, task_no)
-    if not dirs:
+    logs = resolve_logs(pid, task_no)
+    if not logs:
         return {
             "applied_dialog": False,
             "pasted_patch": False,
             "transcribed": False,
             "deleted_at_source": False,
         }
-    events = load_events(dirs)
+    events = load_events(logs)
     added = load_canonical_added(bug, cond)
 
     applied_dialog = compute_apply(events)
@@ -906,13 +907,16 @@ def build_rows() -> list[dict]:
         )
 
         # Mechanism flags from the IDE event stream.
-        mech = compute_mechanisms(disk, task_no, bug, cond)
+        mech = compute_mechanisms(pid, task_no, bug, cond)
         patch_entered = (
             mech["applied_dialog"] or mech["pasted_patch"] or mech["transcribed"]
         )
 
-        # The join.
-        patch_usage = classify_rule(end_state, patch_entered)
+        # The join. rule_patch_usage records the pre-override rule output so a
+        # manual override is auditable in the CSV and future rule drift under an
+        # override is visible.
+        rule_patch_usage = classify_rule(end_state, patch_entered)
+        patch_usage = rule_patch_usage
         override_applied = False
         override_reason = ""
         if (pid, task_no) in MANUAL_OVERRIDES:
@@ -933,6 +937,7 @@ def build_rows() -> list[dict]:
                 "transcribed": mech["transcribed"],
                 "deleted_at_source": mech["deleted_at_source"],
                 "patch_usage": patch_usage,
+                "rule_patch_usage": rule_patch_usage,
                 "override_applied": override_applied,
                 "override_reason": override_reason,
                 "suspect_trivial_patch": suspect,
@@ -958,6 +963,7 @@ OUT_COLS = [
     "transcribed",
     "deleted_at_source",
     "patch_usage",
+    "rule_patch_usage",
     "override_applied",
     "override_reason",
     "suspect_trivial_patch",

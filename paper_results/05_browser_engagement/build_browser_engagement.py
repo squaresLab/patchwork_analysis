@@ -14,27 +14,24 @@ How the measure is computed
 Each per-task fixation file is one row per gaze sample, carrying the fixation it
 belongs to (``fixation_group_id``, ``fixation_group_duration``) and the AOI it
 landed on (``AOI``). Samples are collapsed to one row per fixation group. The
-group's AOI is the MAJORITY (mode) AOI over its samples; its duration is
-``fixation_group_duration`` (constant within the group); its time is the first
-sample's ``timestamp``. The task timeline is [min, max] of the fixation-group
+group's AOI is the MAJORITY (mode) AOI over its normalized labels, matching the
+project's AOI aggregation (aggregate_gaze.py); its duration is
+``fixation_group_duration`` (constant within the group); its time is the mean
+sample ``timestamp``. The task timeline is [min, max] of the fixation-group
 start times, split into equal-time thirds. For each third we sum Browser
 fixation duration and total fixation duration (minutes) and report the Browser
 share. ``whole`` is the same share over the whole task. ``late_any`` is 1 iff
 the late third has any Browser fixation. ``span`` is the timeline length in
 minutes; ``n_fix`` is the number of fixation groups.
 
-Where the data is and where it came from
-----------------------------------------
-Two local inputs, both primary project data:
-
+Inputs (both primary project data)
+----------------------------------
 1. The per-task FIXATION FILES at
    ``patchwork_data/<PID>/t<task_no>/<PID>_t<task_no>_fixation_filtered.csv``
    (PID with ``_`` rewritten to ``-`` on disk).
 2. The TASK LIST from ``patchwork_analysis/timing_correctness_data.csv`` (PID,
    task_no, bug, condition, correct; a task has gaze iff
    ``Source Code_fixation_count`` is present).
-
-This builder reads nothing under ``explorations/``.
 
 Output: ``browser_engagement_input.csv``, written in this directory and read by
 ``browser_engagement_models.R``.
@@ -52,7 +49,13 @@ import numpy as np
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
-from patchwork_io import DATA, TIMING_CSV, disk_pid, recover_ms_clock
+from patchwork_io import (
+    DATA,
+    TIMING_CSV,
+    disk_pid,
+    fixation_groups,
+    recover_ms_clock,
+)
 
 HERE = Path(__file__).resolve().parent
 OUT = HERE / "browser_engagement_input.csv"
@@ -64,15 +67,6 @@ BROWSER_AOI = "Browser"
 OUTLIERS = {
     ("P1", 1),
 }
-
-
-def _mode_aoi(s: pd.Series) -> str:
-    """Majority AOI over a fixation group's samples (most frequent value).
-
-    ``pandas.Series.mode`` breaks ties alphabetically (it returns the sorted set
-    of most-frequent values), so the assignment is deterministic regardless of
-    sample order."""
-    return s.mode().iloc[0]
 
 
 def task_thirds(pid: str, task_no: int) -> dict[str, float] | None:
@@ -98,11 +92,11 @@ def task_thirds(pid: str, task_no: int) -> dict[str, float] | None:
         return None
     df = recover_ms_clock(df, ts_col="timestamp")
 
-    grp = df.groupby("fixation_group_id").agg(
-        dur_ms=("fixation_group_duration", "first"),
-        ts=("timestamp", "mean"),
-    )
-    grp["aoi"] = df.groupby("fixation_group_id")["AOI"].agg(_mode_aoi)
+    # One row per fixation group: AOI is the per-group majority (mode) over
+    # normalized AOI labels, matching the project's AOI aggregation
+    # (aggregate_gaze.py); duration is the group's fixation_group_duration; ts
+    # is the mean sample timestamp.
+    grp = fixation_groups(df)
     if grp.empty:
         return None
 
@@ -175,10 +169,9 @@ def main() -> None:
         )
 
     out = pd.DataFrame(rows)
-    # Lexicographic PID-string then task_no order, matching the directory-walk
-    # order of the upstream producer. The permutation test in the R model draws
-    # its random permutations in CSV row order under a fixed seed, so the row
-    # order is part of reproducing the reported permutation p-value.
+    # Lexicographic PID-string then task_no order. The permutation test in the R
+    # model draws its random permutations in CSV row order under a fixed seed, so
+    # this row order is part of the reported permutation p-value.
     out = out.sort_values(
         by=["PID", "task_no"], key=lambda c: c.astype(str) if c.name == "PID" else c
     ).reset_index(drop=True)

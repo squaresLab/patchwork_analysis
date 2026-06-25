@@ -9,27 +9,28 @@ timestamp of the last edit to a SOURCE ``.java`` file in the IDE event stream;
 ``t0`` is the task start (the first IDE event). Within that post-fix window we
 measure four gaze quantities and compare each to its whole-task counterpart.
 
-This builder is self-contained. It combines two stages that upstream lived in
-separate scripts (``parse_ide_events.py`` for the IDE boundary, then
-``validation_window.py`` for the gaze shares). It reads only primary data.
+It reads only primary data. The IDE event stream gives the post-fix window
+boundary; the gaze fixation files give the AOI shares within that window.
 
 Inputs (all local, primary data)
 ---------------------------------
 1. The TASK LIST, condition/bug/correct, gaze presence, and per-task durations
    from ``patchwork_analysis/timing_correctness_data.csv``. The analyzed task set
-   is every task whose ``t<n>/ide_tracking.xml`` exists on disk. ``has_gaze`` is
-   true iff the task's ``Source Code_fixation_count`` is present. ``time_minutes``
-   is the authoritative task span, also used to cap ``window_dur_min``.
+   is every task with a resolvable IDE log (direct ``t<n>/ide_tracking.xml`` or
+   merged ``t<n>_part*`` logs). ``has_gaze`` is true iff the task's
+   ``Source Code_fixation_count`` is present. ``time_minutes`` is the
+   authoritative task span, also used to cap ``window_dur_min``.
 2. The per-task IDE event logs
-   ``patchwork_data/<disk_pid>/t<task_no>/ide_tracking.xml``. From each we derive
-   ``t0`` (first event timestamp) and ``t_last_source_edit`` (last source-edit
-   timestamp). ``has_window`` flags tasks with at least one source edit.
+   ``patchwork_data/<disk_pid>/t<task_no>/ide_tracking.xml`` (or the
+   ``t<task_no>_part*`` parts, merged). From each we derive ``t0`` (first event
+   timestamp) and ``t_last_source_edit`` (last source-edit timestamp).
+   ``has_window`` flags tasks with at least one source edit.
 3. The per-task FIXATION FILES
    ``patchwork_data/<disk_pid>/t<task_no>/<disk_pid>_t<task_no>_fixation_filtered.csv``
    for the AOI fixation-time shares within the window and over the whole task.
 
-Edit detection (ported verbatim from parse_ide_events.py)
----------------------------------------------------------
+Edit detection
+--------------
 Edits are identified by ``<typing>`` elements (char-level keystrokes carrying a
 ``path``) plus a set of edit ACTION events (paste/backspace/SaveAll/...). An edit
 counts toward the source-edit timeline only when its ``path`` is a real project
@@ -42,9 +43,9 @@ Clock alignment
 ---------------
 The per-sample fixation ``timestamp`` and the IDE event timestamps are the same
 Tobii epoch milliseconds, so ``t_last_source_edit`` is a valid absolute boundary
-on the fixation timeline. NO clock recovery is applied (matching the upstream
-producer ``validation_window.py``); the window is the raw millisecond comparison
-``timestamp >= t_last_source_edit``. ``window_dur_min`` is the span from the last
+on the fixation timeline. No clock recovery is applied; the window is the raw
+millisecond comparison ``timestamp >= t_last_source_edit``.
+``window_dur_min`` is the span from the last
 edit to the last in-window fixation, clipped to ``[0, real_task_duration]``.
 
 Run (from anywhere; cwd-independent):
@@ -61,59 +62,61 @@ import numpy as np
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
-from patchwork_io import DATA, TIMING_CSV, disk_pid, is_source
+from patchwork_io import (
+    APPLY_ACTION,
+    DATA,
+    EDIT_ACTIONS,
+    TIMING_CSV,
+    disk_pid,
+    is_source,
+    iter_ide_events,
+    resolve_logs,
+)
 
 HERE = Path(__file__).resolve().parent
 OUT = HERE / "validation_window_model_input.csv"
 
-# --- IDE event taxonomy (ported verbatim from parse_ide_events.py) -----------
-# Only the edit-related sets matter for t_last_source_edit; the others are
-# retained for fidelity but unused here.
-EDIT_ACTIONS = {
-    "EditorPaste", "EditorBackSpace", "EditorDeleteToWordStart", "EditorCut",
-    "EditorEnter", "SaveAll", "CommentByLineComment", "EditorChooseLookupItem",
-    "EditorChooseLookupItemReplace",
-}
 
-def parse_task(xml_path: Path) -> dict[str, float | int | None]:
+def parse_task(xml_paths: list[Path]) -> dict[str, float | int | None]:
     """Stream the actions + typing elements; return (t0, t_last_source_edit).
 
-    Ported from parse_ide_events.parse_task, reduced to the two timestamps the
-    validation window needs. Uses iterparse to keep memory flat over the
-    9-14 MB logs. ``t0`` is the earliest event timestamp; ``t_last_source_edit``
-    is the latest source-edit timestamp (None if no source edit occurred).
+    Reduced to the two timestamps the validation window needs. ``t0`` is the
+    earliest event timestamp; ``t_last_source_edit`` is the latest source-edit
+    timestamp (None if no source edit occurred). Only the edit-related action
+    set (``EDIT_ACTIONS``) and the apply-patch action matter here.
+
+    A task split across ``t<n>_part*`` logs passes all its parts here; events
+    accumulate across them, and t0/t_last_source_edit are the min/max over the
+    union, so the result is independent of part order.
     """
     timestamps: list[int] = []
     source_edit_ts: list[int] = []
 
-    for _event, elem in ET.iterparse(xml_path, events=("end",)):
-        tag = elem.tag
-        if tag == "action":
-            ev = elem.get("event", "")
-            ts = elem.get("timestamp")
-            path = elem.get("path", "") or ""
-            if ts is not None:
-                ts = int(ts)
-                timestamps.append(ts)
-                if ev == "ChangesView.ApplyPatch":
-                    # Applying the suggested patch via the IntelliJ Apply-Patch
-                    # dialog changes source. The action's path is typically
-                    # /suggested.patch, so do NOT gate on is_source(path); count
-                    # it unconditionally as a source edit.
-                    source_edit_ts.append(ts)
-                elif ev in EDIT_ACTIONS:
+    for xml_path in xml_paths:
+        for kind, attrs in iter_ide_events(xml_path):
+            if kind == "action":
+                ev = attrs["key"]
+                ts = attrs["timestamp"]
+                path = attrs["path"]
+                if ts is not None:
+                    timestamps.append(ts)
+                    if ev == APPLY_ACTION:
+                        # Applying the suggested patch via the IntelliJ
+                        # Apply-Patch dialog changes source. The action's path is
+                        # typically /suggested.patch, so do NOT gate on
+                        # is_source(path); count it unconditionally as a source
+                        # edit.
+                        source_edit_ts.append(ts)
+                    elif ev in EDIT_ACTIONS:
+                        if is_source(path):
+                            source_edit_ts.append(ts)
+            elif kind == "typing":
+                ts = attrs["timestamp"]
+                path = attrs["path"]
+                if ts is not None:
+                    timestamps.append(ts)
                     if is_source(path):
                         source_edit_ts.append(ts)
-            elem.clear()
-        elif tag == "typing":
-            ts = elem.get("timestamp")
-            path = elem.get("path", "") or ""
-            if ts is not None:
-                ts = int(ts)
-                timestamps.append(ts)
-                if is_source(path):
-                    source_edit_ts.append(ts)
-            elem.clear()
 
     if not timestamps:
         return {"t0": None, "t_last_source_edit": None}
@@ -130,31 +133,42 @@ def fixation_file(pid: str, task_no: int) -> Path:
     return DATA / dp / f"t{task_no}" / f"{dp}_t{task_no}_fixation_filtered.csv"
 
 
-def buggy_method_share(
-    pid: str, task_no: int, t_last_edit: float
-) -> tuple[float | None, float | None]:
-    """Return (window share, whole-task share) of fixation-time on the buggy
-    method, from the per-sample fixation_filtered.csv. Uses one
-    fixation_group_duration per fixation_group_id; on_method for a group is
-    True if any sample in the group is True. Returns (None, None) if the file
-    is missing or has no fixations.
+# Union of the fixation columns the two share computations need. The file is
+# read once with this set and the resulting frame is passed to both, so each
+# large per-task fixation CSV is read a single time per task.
+FIXATION_USECOLS = [
+    "timestamp",
+    "fixation_group_id",
+    "fixation_group_duration",
+    "on_method",
+    "AOI",
+]
+
+
+def load_fixations(pid: str, task_no: int) -> pd.DataFrame | None:
+    """Read the per-task fixation_filtered.csv once, with the union of columns
+    both share computations need. Returns the frame with rows lacking a
+    ``fixation_group_id`` dropped, or None if the file is missing or holds no
+    fixations.
     """
     path = fixation_file(pid, task_no)
     if not path.exists():
-        return None, None
-    df = pd.read_csv(
-        path,
-        usecols=[
-            "timestamp",
-            "fixation_group_id",
-            "fixation_group_duration",
-            "on_method",
-        ],
-        low_memory=False,
-    )
+        return None
+    df = pd.read_csv(path, usecols=FIXATION_USECOLS, low_memory=False)
     df = df.dropna(subset=["fixation_group_id"])
     if df.empty:
-        return None, None
+        return None
+    return df
+
+
+def buggy_method_share(
+    df: pd.DataFrame, t_last_edit: float
+) -> tuple[float | None, float | None]:
+    """Return (window share, whole-task share) of fixation-time on the buggy
+    method, from a per-sample fixation frame. Uses one
+    fixation_group_duration per fixation_group_id; on_method for a group is
+    True if any sample in the group is True.
+    """
     # on_method may be string 'True'/'False' or bool; coerce.
     om = df["on_method"]
     if om.dtype == object:
@@ -180,13 +194,13 @@ def buggy_method_share(
 
 
 def aoi_shares(
-    pid: str, task_no: int, t_last_edit: float, real_dur_min: float
+    df: pd.DataFrame, t_last_edit: float, real_dur_min: float
 ) -> dict[str, float | None]:
     """Source-code and Patch fixation-time shares, window and whole-task, plus
     task and window durations.
 
     The window (last source edit -> task end) is defined on the per-sample
-    fixation file's MILLISECOND timestamps, which are the IDE epoch clock. This
+    fixation frame's MILLISECOND timestamps, which are the IDE epoch clock. This
     is robust to the raw-gaze MINUTE clock being glitched.
 
     Durations use the REAL task duration (real_dur_min == time_minutes), NOT
@@ -195,7 +209,6 @@ def aoi_shares(
     ``[0, real_dur_min]`` so a glitched span cannot leak in and a window can
     never exceed the real task.
     """
-    path = fixation_file(pid, task_no)
     out: dict[str, float | None] = {
         "source_window": None,
         "source_whole": None,
@@ -204,16 +217,6 @@ def aoi_shares(
         "task_dur_min": float(real_dur_min),
         "window_dur_min": None,
     }
-    if not path.exists():
-        return out
-    df = pd.read_csv(
-        path,
-        usecols=["timestamp", "fixation_group_id", "fixation_group_duration", "AOI"],
-        low_memory=False,
-    )
-    df = df.dropna(subset=["fixation_group_id"])
-    if df.empty:
-        return out
 
     def share(sub: pd.DataFrame, aoi: str) -> float | None:
         if sub.empty:
@@ -249,9 +252,9 @@ def aoi_shares(
 
 def main() -> None:
     # The task list, conditions, correctness, gaze presence, and per-task
-    # durations all come from the canonical timing CSV. A task has an IDE log iff
-    # t<n>/ide_tracking.xml exists on disk (the inclusion criterion); a task has
-    # gaze iff its Source Code fixation count is present.
+    # durations all come from the canonical timing CSV. A task is included iff it
+    # has a resolvable IDE log (direct or merged parts); a task has gaze iff its
+    # Source Code fixation count is present.
     timing = pd.read_csv(TIMING_CSV)
     real_dur = {
         (r.PID, int(r.task_no)): float(r.time_minutes)
@@ -265,16 +268,30 @@ def main() -> None:
     }
 
     rows = []
+    skipped_no_log = []
+    skipped_unparseable = []
+    skipped_empty_log = []
     for r in timing.itertuples():
         pid, task_no = r.PID, int(r.task_no)
-        xml = DATA / disk_pid(pid) / f"t{task_no}" / "ide_tracking.xml"
-        if not xml.exists():
-            continue  # no IDE log -> not in the validation-window analysis
-        feat = parse_task(xml)
+        # Inclusion criterion: a resolvable IDE log. resolve_logs returns the
+        # direct t<n>/ide_tracking.xml when present, otherwise the t<n>_part*
+        # logs, which parse_task merges. This is the same log set the other IDE
+        # findings use, so the validation task set matches them.
+        logs = resolve_logs(pid, task_no)
+        if not logs:
+            skipped_no_log.append((pid, task_no))
+            continue
+        try:
+            feat = parse_task(logs)
+        except ET.ParseError:
+            skipped_unparseable.append((pid, task_no))
+            continue
         t0 = feat["t0"]
-        # Every analyzed task has IDE events, so t0 (the first event timestamp) is
-        # always set; t0 is None only for an empty log, which does not occur here.
-        assert t0 is not None
+        # t0 (the first event timestamp) is None only for an empty log. An empty
+        # or malformed log is skipped rather than crashing the build.
+        if t0 is None:
+            skipped_empty_log.append((pid, task_no))
+            continue
         t_last = feat["t_last_source_edit"]
         has_window = t_last is not None
         has_gaze = has_gaze_by_task[(pid, task_no)]
@@ -291,23 +308,46 @@ def main() -> None:
             "t_last_source_edit": t_last,
         }
 
-        # Buggy-method share (per-sample) needs a window and gaze.
+        # Read the per-task fixation file ONCE, with the union of columns both
+        # the buggy-method share and the AOI shares need, and pass the frame to
+        # both. fx is None when the file is missing or has no fixations; both
+        # share computations then yield None, matching a file-absent task.
+        key = (pid, task_no)
+        rdur = real_dur.get(key)
+        fx = None
         if has_window and has_gaze:
-            bm_win, bm_whole = buggy_method_share(pid, task_no, float(t_last))
+            fx = load_fixations(pid, task_no)
+
+        # Buggy-method share (per-sample) needs a window, gaze, and fixations.
+        if fx is not None:
+            bm_win, bm_whole = buggy_method_share(fx, float(t_last))
         else:
             bm_win, bm_whole = (None, None)
         rec["buggy_window"] = bm_win
         rec["buggy_whole"] = bm_whole
 
         # Source/Patch AOI shares + durations, on the IDE millisecond clock.
-        key = (pid, task_no)
-        rdur = real_dur.get(key)
         # window_start_min is the last-edit offset on the IDE clock (for record).
         rec["window_start_min"] = (
             (float(t_last) - float(t0)) / 60000.0 if has_window else np.nan
         )
         if has_window and has_gaze and rdur is not None:
-            rec.update(aoi_shares(pid, task_no, float(t_last), rdur))
+            if fx is not None:
+                rec.update(aoi_shares(fx, float(t_last), rdur))
+            else:
+                # File absent or empty: shares are None, durations fall back to
+                # the file-absent path of aoi_shares (task_dur_min set, the rest
+                # None).
+                rec.update(
+                    {
+                        "source_window": None,
+                        "source_whole": None,
+                        "patch_window": None,
+                        "patch_whole": None,
+                        "task_dur_min": float(rdur),
+                        "window_dur_min": None,
+                    }
+                )
         else:
             for k in [
                 "source_window",
@@ -333,6 +373,12 @@ def main() -> None:
     print(out.groupby("condition").size().to_string())
     print(f"has_window True: {int(out['has_window'].sum())}")
     print(f"has_gaze True:   {int(out['has_gaze'].sum())}")
+    if skipped_no_log:
+        print(f"  skipped (no IDE log): {skipped_no_log}")
+    if skipped_unparseable:
+        print(f"  skipped (unparseable): {skipped_unparseable}")
+    if skipped_empty_log:
+        print(f"  skipped (empty log): {skipped_empty_log}")
 
 
 if __name__ == "__main__":

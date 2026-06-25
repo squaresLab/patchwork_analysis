@@ -140,9 +140,38 @@ fit_2level <- function(data, outcome_bin, predictor, outcome_label,
     stability <- paste0("UNSTABLE: ", paste(reasons, collapse = "; "),
                         " -- treat as DESCRIPTIVE only")
 
+  # The printed and JSON per-predictor-level Y/N breakdown must describe the
+  # model's actual predictor. When the predictor is `condition` this is the
+  # by-condition breakdown; when it is not (e.g. patch_modified), break down by
+  # the predictor levels so the breakdown matches the contrast, not condition.
+  per_pred_yn <- function(data, outcome_bin) {
+    lv <- sort(unique(data[[predictor]]))
+    paste(sapply(lv, function(pl) {
+      sub <- data[data[[predictor]] == pl, ]
+      y <- sum(sub[[outcome_bin]] == 1L)
+      paste0(predictor, "=", pl, ": ", y, "/", nrow(sub) - y)  # yes/no
+    }), collapse = "; ")
+  }
+  per_pred_n <- function(data) {
+    lv <- sort(unique(data[[predictor]]))
+    paste(sapply(lv, function(pl) {
+      paste0(predictor, "=", pl, "=", sum(data[[predictor]] == pl))
+    }), collapse = ";")
+  }
+
+  if (predictor == "condition") {
+    cell_yn_str <- per_cond_yn(data, outcome_bin)
+    cell_n_str <- paste(names(table(droplevels(data$condition))),
+                        as.integer(table(droplevels(data$condition))),
+                        sep = "=", collapse = ";")
+  } else {
+    cell_yn_str <- per_pred_yn(data, outcome_bin)
+    cell_n_str <- per_pred_n(data)
+  }
+
   cat("RE used: ", fb$re_structure, " | N = ", nrow(data), "\n", sep = "")
   cat("2x2 (outcome rows x predictor cols):\n"); print(tb)
-  cat("per-condition Y/N: ", per_cond_yn(data, outcome_bin), "\n", sep = "")
+  cat("per-predictor Y/N: ", cell_yn_str, "\n", sep = "")
   cat("OR = ", round(or, 4), "  95% CI [", round(ci_low, 4), ", ",
       round(ci_high, 4), "]  p = ", signif(p, 4), "\n", sep = "")
   cat("stability: ", stability, "\n", sep = "")
@@ -178,10 +207,8 @@ fit_2level <- function(data, outcome_bin, predictor, outcome_label,
     p_raw = p,
     p_BH = NA_real_,
     n_tasks = nrow(data),
-    per_condition_n = paste(names(table(droplevels(data$condition))),
-                            as.integer(table(droplevels(data$condition))),
-                            sep = "=", collapse = ";"),
-    per_cell_yn = per_cond_yn(data, outcome_bin),
+    per_condition_n = cell_n_str,
+    per_cell_yn = cell_yn_str,
     min_2x2_cell = mc,
     stability = stability,
     descriptive = desc,

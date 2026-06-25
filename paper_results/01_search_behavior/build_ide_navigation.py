@@ -46,19 +46,12 @@ from pathlib import Path
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
-from patchwork_io import TIMING_CSV, is_project_java, resolve_logs
+from patchwork_io import NAV, TIMING_CSV, is_project_java, iter_ide_events, resolve_logs
 
 HERE = Path(__file__).resolve().parent
 TIMING = TIMING_CSV
 OUT = HERE / "ide_navigation_input.csv"
 
-
-# Code-navigation / search action events.
-NAV = {
-    "GotoImplementation", "GotoDeclaration", "GotoTypeDeclaration", "Find",
-    "FindInPath", "SearchEverywhere", "ViewSource", "Back", "Forward",
-    "GotoLine", "FindUsages", "Switcher",
-}
 
 # fileOpened paths that are not project code even when the remark is plain
 # "fileOpened" (defensive; the NotCodeFile remark already tags these).
@@ -89,25 +82,16 @@ def parse_logs(xml_paths: list[Path]) -> dict:
     opened: set[str] = set()
 
     for xml_path in xml_paths:
-        for _event, elem in ET.iterparse(xml_path, events=("end",)):
-            tag = elem.tag
-            if tag == "action":
-                # P*_0 participants use id="..."; everyone else event="...".
-                key = elem.get("event")
-                if key is None:
-                    key = elem.get("id", "")
-                if key in NAV:
+        for kind, attrs in iter_ide_events(xml_path):
+            if kind == "action":
+                if attrs["key"] in NAV:
                     n_nav += 1
-                elem.clear()
-            elif tag == "archive":
-                remark = elem.get("remark", "") or ""
+            elif kind == "archive":
+                remark = attrs["remark"]
                 if remark.startswith("fileOpened"):
-                    path = elem.get("path", "") or ""
+                    path = attrs["path"]
                     if _is_opened_project_java(path, remark):
                         opened.add(path)
-                elem.clear()
-            else:
-                elem.clear()
 
     return {
         "n_navigation": n_nav,

@@ -41,14 +41,49 @@ per_condition_n <- function(d) {
   paste(names(tb), as.integer(tb), sep = "=", collapse = ";")
 }
 
+# Remove one random-effect grouping term from a model formula by its structure.
+# Operates on the parsed formula via lme4's bar machinery, not on text, so it is
+# insensitive to spacing and to fixed-effect names that share substrings with a
+# grouping variable. The fixed part (including any offset()) is preserved
+# verbatim through nobars(); the surviving RE bars are reattached unchanged.
+drop_re_group <- function(formula_str, group) {
+  f <- as.formula(formula_str)
+  bars <- findbars(f)
+  kept <- bars[vapply(bars, function(b) deparse(b[[3]]) != group, logical(1))]
+  fixed_txt <- paste(deparse(nobars(f)), collapse = " ")
+  if (length(kept) == 0) {
+    return(fixed_txt)
+  }
+  re_txt <- paste(
+    sprintf("(%s)", vapply(kept, function(b) paste(deparse(b), collapse = " "),
+                           character(1))),
+    collapse = " + "
+  )
+  paste(fixed_txt, "+", re_txt)
+}
+
+# Drop all random-effect terms, leaving only the fixed part.
+drop_all_re <- function(formula_str) {
+  paste(deparse(nobars(as.formula(formula_str))), collapse = " ")
+}
+
 # Fit a mixed model with the fixed RE-dropping fallback.
 # `fitter` is lmer or glmer; `family` is passed through for glmer.
+# The fitter tries the crossed (1|PID)+(1|bug) structure, falls back to (1|PID)
+# (dropping bug), then to (1|bug) (dropping PID), then to a plain lm/glm with no
+# random effects. A structure is passed over when its fit errors, emits a
+# warning, or converges to a singular RE structure; the first structure whose
+# fit clears all three is retained, and the chosen structure is recorded. The
+# warning gate is deliberate: in a small-cell logistic family a convergence
+# warning on the fuller RE structure signals separation, and retaining that fit
+# yields an explosive odds ratio. Dropping to the simpler structure that the
+# next-lower fallback fits cleanly is the safer choice for this design.
 # Returns list(model, re_structure).
 fit_with_fallback <- function(formula_str, data, gaussian = TRUE, family = NULL) {
-  full <- formula_str
-  no_bug <- gsub("\\s*\\+\\s*\\(1 \\| bug\\)", "", formula_str)
-  no_pid <- gsub("\\s*\\+\\s*\\(1 \\| PID\\)", "", formula_str)
-  no_re  <- gsub("\\s*\\+\\s*\\(1 \\| PID\\)\\s*\\+\\s*\\(1 \\| bug\\)", "", formula_str)
+  full   <- formula_str
+  no_bug <- drop_re_group(formula_str, "bug")
+  no_pid <- drop_re_group(formula_str, "PID")
+  no_re  <- drop_all_re(formula_str)
 
   mk <- function(fs, drop_re = FALSE) {
     tryCatch({

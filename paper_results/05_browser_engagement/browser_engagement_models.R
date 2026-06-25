@@ -60,6 +60,14 @@ recs <- fit_contrasts(
   gaussian = FALSE, family = binomial(), report_or = TRUE)
 recs$p_BH <- p.adjust(recs$p_raw, method = "BH")
 
+# Make the model label reflect what actually ran. When both random effects are
+# singular the fallback drops to a plain glm, so the "GLMM" label is misleading;
+# derive the label from re_structure in that case.
+recs$model <- ifelse(
+  grepl("plain lm/glm", recs$re_structure, fixed = TRUE),
+  "logistic glm (hurdle binary part; both REs singular, dropped to glm)",
+  recs$model)
+
 # Model-free corroboration: permutation test on the late-third browser share
 # (overfitting vs correct), and Fisher on any-late-browser (overfitting vs rest).
 perm_p <- function(x, g, B = 10000) {

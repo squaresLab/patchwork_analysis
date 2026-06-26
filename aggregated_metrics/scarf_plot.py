@@ -18,6 +18,7 @@ AOI_ORDER = [
     "Test and Runtime Feedback",
     "Tests",
     "Source Code",
+    "Missing",
     "Other",
 ]
 
@@ -27,7 +28,8 @@ AOI_COLORS = {
     "Test and Runtime Feedback": "#31a354",
     "Tests": "#fd8d3c",
     "Source Code": "#756bb1",
-    "Other": "#bdbdbd",
+    "Missing": "#bdbdbd",
+    "Other": "#8f8f8f",
 }
 
 # -----------------------------
@@ -53,10 +55,9 @@ def load_scarf_data(csv_path: str) -> pd.DataFrame:
     )
     df["trial_id"] = df["PID"].astype(str) + "_t" + df["task_no"].astype(str)
 
-    # Normalize AOI bucket in case unknown labels sneak in
-    df["scarf_aoi"] = df["scarf_aoi"].where(
-        df["scarf_aoi"].isin(AOI_ORDER), "Other"
-    )
+    # Keep Missing explicit (from '-') and map unknown labels to Other.
+    df["scarf_aoi"] = df["scarf_aoi"].fillna("Missing")
+    df["scarf_aoi"] = df["scarf_aoi"].where(df["scarf_aoi"].isin(AOI_ORDER), "Other")
     return df
 
 
@@ -111,9 +112,6 @@ def draw_scarf(ax, df: pd.DataFrame, trial_order: pd.DataFrame, xmax: float, tit
     for row in df.itertuples(index=False):
         y = y_lookup.get(row.trial_id)
         if y is None:
-            continue
-
-        if row.scarf_aoi == "Missing":
             continue
 
         window = compute_draw_window(row.start_min, row.end_min, xmax)

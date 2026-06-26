@@ -24,6 +24,7 @@ AOI_ORDER = [
     "Test and Runtime Feedback",
     "Tests",
     "Source Code",
+    "Missing",
     "Other",
 ]
 
@@ -33,7 +34,8 @@ AOI_COLORS = {
     "Test and Runtime Feedback": "#31a354",
     "Tests": "#fd8d3c",
     "Source Code": "#756bb1",
-    "Other": "#bdbdbd",
+    "Missing": "#bdbdbd",
+    "Other": "#8f8f8f",
 }
 
 
@@ -50,6 +52,7 @@ def load_scarf_data(csv_path: Path) -> pd.DataFrame:
     df["task_no"] = df["task_no"].astype(int)
     df["condition"] = df["condition"].astype(str)
     df["trial_id"] = df["PID"] + "_t" + df["task_no"].astype(str)
+    df["scarf_aoi"] = df["scarf_aoi"].fillna("Missing")
     df["scarf_aoi"] = df["scarf_aoi"].where(df["scarf_aoi"].isin(AOI_ORDER), "Other")
 
     return df
@@ -129,26 +132,40 @@ def add_shared_legend(fig: plt.Figure) -> None:
 
 
 def make_pdf(df: pd.DataFrame, participants: list[str], output_pdf: Path) -> None:
+    rows: list[tuple[str, str, pd.DataFrame]] = []
+    for pid in participants:
+        person_df = df[df["PID"] == pid].copy()
+        for condition in PLOT_CONDITION_ORDER:
+            cond_df = person_df[person_df["condition"] == condition].copy()
+            rows.append((pid, condition, cond_df))
+
+    fig_height = max(18, 2.4 * len(rows))
+    fig, axes = plt.subplots(len(rows), 1, figsize=(16, fig_height), sharex=True)
+    if len(rows) == 1:
+        axes = [axes]
+
+    for i, (ax, (pid, condition, cond_df)) in enumerate(zip(axes, rows)):
+        panel_title = f"{pid} - {condition.title()}"
+        if cond_df.empty:
+            draw_empty_panel(ax, panel_title)
+        else:
+            draw_trial_scarf(ax, cond_df, panel_title)
+
+        if i > 0 and rows[i - 1][0] != pid:
+            ax.axhline(y=ax.get_ylim()[1], color="#d9d9d9", linewidth=1)
+
+    fig.suptitle(
+        "Five Participants: Correct, Overfitting, and Control Scarf Plots",
+        fontsize=14,
+        fontweight="bold",
+        y=0.995,
+    )
+    add_shared_legend(fig)
+    fig.tight_layout(rect=[0.03, 0.06, 0.99, 0.985])
+
     with PdfPages(output_pdf) as pdf:
-        for pid in participants:
-            person_df = df[df["PID"] == pid].copy()
-
-            fig, axes = plt.subplots(1, 3, figsize=(18, 6), sharex=True)
-
-            for ax, condition in zip(axes, PLOT_CONDITION_ORDER):
-                cond_df = person_df[person_df["condition"] == condition].copy()
-                panel_title = condition.title()
-                if cond_df.empty:
-                    draw_empty_panel(ax, panel_title)
-                else:
-                    draw_trial_scarf(ax, cond_df, panel_title)
-
-            fig.suptitle(f"Participant {pid}: Scarf Plots by Condition", fontsize=14, fontweight="bold")
-            add_shared_legend(fig)
-            fig.tight_layout(rect=[0.02, 0.08, 0.98, 0.92])
-
-            pdf.savefig(fig)
-            plt.close(fig)
+        pdf.savefig(fig)
+    plt.close(fig)
 
 
 def main() -> None:

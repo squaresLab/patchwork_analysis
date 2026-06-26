@@ -11,9 +11,9 @@ PY ?= python3
 RS ?= Rscript
 HERE := $(ROOT)/patchwork_analysis/paper_results
 
-.PHONY: all clean manifest search editing validation debugger browser
+.PHONY: all clean manifest search editing validation debugger browser test_run
 
-all: search editing validation debugger browser
+all: search editing validation debugger browser test_run
 	@echo "All analyses complete. Results in results/, logs in logs/."
 
 # search-vs-study: does a patch reduce the developer's SEARCH, in two halves.
@@ -44,6 +44,12 @@ debugger:
 # late-task browser engagement (suggestive).
 browser:
 	cd $(ROOT) && $(RS) $(HERE)/05_browser_engagement/browser_engagement_models.R 2>&1 | tee $(HERE)/logs/browser_engagement.log
+
+# test-run rate: do developers run tests proportionally more often per minute in
+# some conditions? IDE companion to the fix-validation finding.
+test_run:
+	$(PY) $(HERE)/06_test_run_rate/build_test_run_rate.py | tee $(HERE)/logs/test_run_rate_build.log
+	cd $(ROOT) && $(RS) $(HERE)/06_test_run_rate/test_run_rate.R 2>&1 | tee $(HERE)/logs/test_run_rate.log
 
 clean:
 	rm -f $(HERE)/results/results_*.json

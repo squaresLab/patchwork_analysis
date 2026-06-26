@@ -49,6 +49,9 @@ cat("Excluded empty/artifact windows:", sum(bad), "\n")
 base <- base[!bad, ]
 base$source_minutes <- base$source_window * base$window_dur_min
 base$buggy_minutes  <- base$buggy_window  * base$window_dur_min
+# Window as a share of total task time: does validation take up MORE of the
+# debugging effort under a patch, even when its absolute duration is similar?
+base$window_frac <- base$window_dur_min / base$task_dur_min
 base <- prep_condition(base)
 cat("N per condition:\n"); print(table(base$condition))
 
@@ -70,8 +73,10 @@ n_match <- sum(!is.na(base$passes_original_tests))
 cat(sprintf("Merge of passes_original_tests: %d/%d base rows matched (%d unmatched).\n",
             n_match, n_before, n_before - n_match))
 
-# Primary family: the post-fix window measures. If a patch made validation MORE
-# effortful, these would be HIGHER under patch; the finding is they are not.
+# Primary family: the post-fix window measures, including the window's share of
+# total task time. If a patch made validation MORE effortful, or took up MORE of
+# the debugging effort, these would be HIGHER under patch; the finding is they
+# are not.
 fit_y <- function(yname, outcome) {
   d <- base[is.finite(base[[yname]]), ]
   d$.y <- d[[yname]]
@@ -82,6 +87,7 @@ fit_y <- function(yname, outcome) {
 
 recs <- rbind(
   fit_y("window_dur_min",  "window_duration_min"),
+  fit_y("window_frac",     "window_fraction_of_task"),
   fit_y("source_minutes",  "source_minutes_in_window"),
   fit_y("source_window",   "source_share_in_window"),
   fit_y("buggy_minutes",   "buggy_method_minutes_in_window"),
@@ -89,10 +95,10 @@ recs <- rbind(
 )
 
 # BH family choice is a researcher degree of freedom that moves the source-minutes
-# effect across .05. Record BOTH: the narrow family (the 5 patch-vs-control tests,
-# matching the upstream run_validation_window_models.R, source-minutes BH=.046) and
-# the wider 10-test family (both contrasts, source-minutes BH=.091). The NULL
-# headline (no measure shows MORE validation under a patch) holds under either.
+# effect across .05. Record BOTH: the narrow family (the patch-vs-control tests,
+# one per outcome) and the wider family (both contrasts per outcome). The NULL
+# headline (no measure shows MORE validation under a patch, in absolute time or
+# as a share of the task) holds under either.
 recs$p_BH_family10 <- round(p.adjust(recs$p_raw, method = "BH"), 6)
 pvc <- recs$contrast == "patch_vs_control"
 recs$p_BH_pvc5 <- NA_real_
@@ -127,6 +133,7 @@ fit_y_sub <- function(yname, outcome) {
 
 recs_sub <- rbind(
   fit_y_sub("window_dur_min",  "window_duration_min"),
+  fit_y_sub("window_frac",     "window_fraction_of_task"),
   fit_y_sub("source_minutes",  "source_minutes_in_window"),
   fit_y_sub("source_window",   "source_share_in_window"),
   fit_y_sub("buggy_minutes",   "buggy_method_minutes_in_window"),
